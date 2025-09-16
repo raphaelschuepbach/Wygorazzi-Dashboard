@@ -6,6 +6,8 @@ import numpy as np
 # CSV einlesen
 df = pd.read_csv("Spieler_Statistik_25_26.csv")
 
+df['Linie'] = df['Linie'].astype(str)
+
 # "-" in Plus und Minus durch NaN ersetzen, dann in Zahlen umwandeln
 df["Plus"] = df["Plus"].replace("-", np.nan).astype(float)
 df["Minus"] = df["Minus"].replace("-", np.nan).astype(float)
@@ -21,6 +23,11 @@ df["Punkte"] = df["T"] + df["A"]
 bully_stats = df.groupby("Name")[["Bully-Plus", "Bully-Minus"]].sum()
 bully_stats["Bully-Gewinn %"] = 100 * bully_stats["Bully-Plus"] / (bully_stats["Bully-Plus"] + bully_stats["Bully-Minus"])
 bully_stats = bully_stats.reset_index()
+
+df["PlusMinus_L"] = df["Linie-Plus"] - df["Linie-Minus"]
+top3 = df.groupby("Linie")['PlusMinus_L'].sum().sort_values(ascending=False).head(4).reset_index()
+top3['PlusMinus_L'] = top3['PlusMinus_L']/3
+top3 = top3[top3["Linie"] != "0"]
 
 # Funktion für Top-3 Balkendiagramm (mit dtick=1)
 def plot_top3(df, column, title, color):
@@ -43,6 +50,15 @@ def plot_top3_bully(bully_df):
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
 
+def plot_Linie(df):
+    df["Linie"] = df["Linie"].astype(str)
+    fig = px.bar(df, x="Linie", y="PlusMinus_L", title="Plus-Minus nach Linie", text="PlusMinus_L")
+    fig.update_traces(marker_color="green", texttemplate='%{text}', textposition='inside',
+                      hoverinfo='skip', hovertemplate=None, showlegend=False)
+    fig.update_layout(xaxis=dict(type="category"),showlegend=False, yaxis_title=None, xaxis_title=None)
+    fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
+    return fig
+
 # Streamlit Layout
 st.set_page_config(page_title="Spielerstatistik UHC Wygorazzi", layout="centered")
 st.title("Spielerstatistik UHC Wygorazzi")
@@ -52,7 +68,9 @@ st.plotly_chart(plot_top3(df, "T", "Tore", "royalblue"), use_container_width=Tru
 st.plotly_chart(plot_top3(df, "A", "Assists", "seagreen"), use_container_width=True, config={'staticPlot': True})
 st.plotly_chart(plot_top3(df, "Punkte", "Punkte (T+A)", "darkorange"), use_container_width=True, config={'staticPlot': True})
 st.plotly_chart(plot_top3(df, "PlusMinus", "Plus-Minus", "firebrick"), use_container_width=True, config={'staticPlot': True})
+st.plotly_chart(plot_top3(df, "Strafen", "Strafen", "gold"), use_container_width=True, config={'staticPlot': True})
 st.plotly_chart(plot_top3_bully(bully_stats), use_container_width=True, config={'staticPlot': True})
+st.plotly_chart(plot_Linie(top3), use_container_width=True, config={'staticPlot': True})
 
 
 # --- CSV einlesen ---
