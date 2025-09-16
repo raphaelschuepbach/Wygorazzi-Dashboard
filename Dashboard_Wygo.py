@@ -48,9 +48,9 @@ st.set_page_config(page_title="Spielerstatistik UHC Wygorazzi", layout="centered
 st.title("Spielerstatistik UHC Wygorazzi")
 st.caption("Saison 25/26 – Spielerstatistiken")
 
-# Plots untereinander anzeigen
-st.plotly_chart(plot_top3(df, "T", "Top 3 Tore", "royalblue"), use_container_width=True)
-st.plotly_chart(plot_top3(df, "A", "Top 3 Assists", "seagreen"), use_container_width=True)
-st.plotly_chart(plot_top3(df, "Punkte", "Top 3 Punkte (T+A)", "darkorange"), use_container_width=True)
-st.plotly_chart(plot_top3(df, "PlusMinus", "Top 3 Plus-Minus", "firebrick"), use_container_width=True)
-st.plotly_chart(plot_top3_bully(bully_stats), use_container_width=True)
+st.plotly_chart(plot_top3(df, "T", "Top 3 Tore", "royalblue"), use_container_width=True, config={'staticPlot': True})
+st.plotly_chart(plot_top3(df, "A", "Top 3 Assists", "seagreen"), use_container_width=True, config={'staticPlot': True})
+st.plotly_chart(plot_top3(df, "Punkte", "Top 3 Punkte (T+A)", "darkorange"), use_container_width=True, config={'staticPlot': True})
+st.plotly_chart(plot_top3(df, "PlusMinus", "Top 3 Plus-Minus", "firebrick"), use_container_width=True, config={'staticPlot': True})
+st.plotly_chart(plot_top3_bully(bully_stats), use_container_width=True, config={'staticPlot': True})
+
