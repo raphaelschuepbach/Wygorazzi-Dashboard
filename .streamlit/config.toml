@@ -1,0 +1,6 @@
+[theme]
+base="dark"
+primaryColor="#00FFAA" # Akzentfarbe für Buttons etc.
+backgroundColor="#0E1117" # dunkler Hintergrund
+secondaryBackgroundColor="#262730" # Panels/Sidebar
+textColor="#FFFFFF"

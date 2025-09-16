@@ -81,37 +81,59 @@ wygo['Sieg'] = np.where(wygo['Sieg'] == 'Ja', 1, 0).astype(int)
 wygo[' Niederlage'] = np.where(wygo[' Niederlage'] == 'Ja', 1, 0).astype(int)
 wygo[' Unentschieden'] = np.where(wygo[' Unentschieden'] == 'Ja', 1, 0).astype(int)
 
-# --- Kennzahlen berechnen ---
-tore_wygo_sum = wygo['Tore Wygorazzi'].sum()
-tore_gegner_sum = wygo['Tore Gegner'].sum()
-siege_sum = wygo['Sieg'].sum()
-niederlagen_sum = wygo[' Niederlage'].sum()
-unentschieden_sum = wygo[' Unentschieden'].sum()
-anz_spiele = len(wygo)
-tordifferenz = tore_wygo_sum - tore_gegner_sum
-avg_tore_wygo = tore_wygo_sum / anz_spiele
-avg_tore_gegner = tore_gegner_sum / anz_spiele
+# --- Saisons vorbereiten + Liga ---
+saisons = {
+    "Gesamt": wygo,
+    "20/21": wygo[wygo['Saison'] == '20/21'],
+    "21/22": wygo[wygo['Saison'] == '21/22'],
+    "22/23": wygo[wygo['Saison'] == '22/23'],
+    "23/24": wygo[wygo['Saison'] == '23/24'],
+    "24/25": wygo[wygo['Saison'] == '24/25'],
+    "25/26": wygo[wygo['Saison'] == '25/26']
+}
 
-# --- Streamlit-Metriken anzeigen ---
-st.subheader("Gesamtstatistik UHC Wygorazzi Herren I")
-col_full = st.columns(1)[0]
-col_full.metric("Anzahl Spiele", f"{anz_spiele}")
+def zeige_statistik(df, titel):
+    # --- Kennzahlen berechnen ---
+    tore_wygo_sum = df['Tore Wygorazzi'].sum()
+    tore_gegner_sum = df['Tore Gegner'].sum()
+    siege_sum = df['Sieg'].sum()
+    niederlagen_sum = df[' Niederlage'].sum()
+    unentschieden_sum = df[' Unentschieden'].sum()
+    anz_spiele = len(df)
+    tordifferenz = tore_wygo_sum - tore_gegner_sum
 
-col1, col2, col3 = st.columns(3)
+    avg_tore_wygo = tore_wygo_sum / anz_spiele if anz_spiele > 0 else 0
+    avg_tore_gegner = tore_gegner_sum / anz_spiele if anz_spiele > 0 else 0
+    
+    liga = df[' Liga Wygorazzi'].iloc[0] if not df.empty else "N/A"
 
-with col1:
-    st.metric("Tore", f"{tore_wygo_sum}")
-    st.markdown(f"<small>Ø {avg_tore_wygo:.2f} pro Spiel</small>", unsafe_allow_html=True)
+    # --- Anzeige ---
+    if titel == "Gesamt":
+        st.subheader("Gesamtstatistik")
+    else:
+        st.subheader(f"Saison {titel} - {liga}. Liga") 
+    col_full = st.columns(1)[0]
+    col_full.metric("Anzahl Spiele", f"{anz_spiele}")
 
-with col2:
-    st.metric("Gegentore", f"{tore_gegner_sum}")
-    st.markdown(f"<small>Ø {avg_tore_gegner:.2f} pro Spiel</small>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
 
-# Tordifferenz als Delta
-col3.metric("Tordifferenz", f"+{tordifferenz}")
+    with col1:
+        st.metric("Tore", f"{tore_wygo_sum}")
+        st.markdown(f"<small>Ø {avg_tore_wygo:.2f} pro Spiel</small>", unsafe_allow_html=True)
 
-col4, col5, col6 = st.columns(3)
-col4.metric("Siege", f"{siege_sum}")
-col5.metric("Niederlagen", f"{niederlagen_sum}")
-col6.metric("Unentschieden", f"{unentschieden_sum}")
+    with col2:
+        st.metric("Gegentore", f"{tore_gegner_sum}")
+        st.markdown(f"<small>Ø {avg_tore_gegner:.2f} pro Spiel</small>", unsafe_allow_html=True)
+
+    col3.metric("Tordifferenz", f"{tordifferenz:+d}")
+
+    col4, col5, col6 = st.columns(3)
+    col4.metric("Siege", f"{siege_sum}")
+    col5.metric("Niederlagen", f"{niederlagen_sum}")
+    col6.metric("Unentschieden", f"{unentschieden_sum}")
+
+# --- Dashboard ---
+st.subheader("Gesamt- und Saisonstatistiken")
+for saison, df_saison in saisons.items():
+    zeige_statistik(df_saison, saison)
 
