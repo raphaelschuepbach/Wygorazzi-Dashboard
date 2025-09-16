@@ -30,6 +30,7 @@ def plot_top3(df, column, title, color):
                       hoverinfo='skip', hovertemplate=None, showlegend=False)
     fig.update_layout(showlegend=False, yaxis=dict(dtick=1, tickmode='linear'),
                       yaxis_title=None, xaxis_title=None)
+    fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
 
 # Spezielle Funktion für Bully-Gewinn % (ohne dtick=1)
@@ -39,6 +40,7 @@ def plot_top3_bully(bully_df):
     fig.update_traces(marker_color="purple", texttemplate='%{text:.1f}%', textposition='outside',
                       hoverinfo='skip', hovertemplate=None, showlegend=False)
     fig.update_layout(showlegend=False, yaxis_title=None, xaxis_title=None)
+    fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
 
 # Streamlit Layout
