@@ -26,7 +26,7 @@ bully_stats = bully_stats.reset_index()
 def plot_top3(df, column, title, color):
     top3 = df.groupby("Name")[column].sum().sort_values(ascending=False).head(3).reset_index()
     fig = px.bar(top3, x="Name", y=column, title=title, text=column)
-    fig.update_traces(marker_color=color, texttemplate='%{text}', textposition='outside',
+    fig.update_traces(marker_color=color, texttemplate='%{text}', textposition='inside',
                       hoverinfo='skip', hovertemplate=None, showlegend=False)
     fig.update_layout(showlegend=False, yaxis=dict(dtick=1, tickmode='linear'),
                       yaxis_title=None, xaxis_title=None)
@@ -37,7 +37,7 @@ def plot_top3(df, column, title, color):
 def plot_top3_bully(bully_df):
     top3 = bully_df.sort_values("Bully-Gewinn %", ascending=False).head(3)
     fig = px.bar(top3, x="Name", y="Bully-Gewinn %", title="Top 3 Bully-Gewinnquote", text="Bully-Gewinn %")
-    fig.update_traces(marker_color="purple", texttemplate='%{text:.1f}%', textposition='outside',
+    fig.update_traces(marker_color="purple", texttemplate='%{text:.1f}%', textposition='inside',
                       hoverinfo='skip', hovertemplate=None, showlegend=False)
     fig.update_layout(showlegend=False, yaxis_title=None, xaxis_title=None)
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
