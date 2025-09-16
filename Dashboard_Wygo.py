@@ -54,3 +54,46 @@ st.plotly_chart(plot_top3(df, "Punkte", "Punkte (T+A)", "darkorange"), use_conta
 st.plotly_chart(plot_top3(df, "PlusMinus", "Plus-Minus", "firebrick"), use_container_width=True, config={'staticPlot': True})
 st.plotly_chart(plot_top3_bully(bully_stats), use_container_width=True, config={'staticPlot': True})
 
+
+# --- CSV einlesen ---
+wygo = pd.read_csv('Statistik_Wygo.csv', sep=',')
+
+# --- Ja/Nein in 1/0 umwandeln ---
+wygo['Sieg'] = np.where(wygo['Sieg'] == 'Ja', 1, 0).astype(int)
+wygo[' Niederlage'] = np.where(wygo[' Niederlage'] == 'Ja', 1, 0).astype(int)
+wygo[' Unentschieden'] = np.where(wygo[' Unentschieden'] == 'Ja', 1, 0).astype(int)
+
+# --- Kennzahlen berechnen ---
+tore_wygo_sum = wygo['Tore Wygorazzi'].sum()
+tore_gegner_sum = wygo['Tore Gegner'].sum()
+siege_sum = wygo['Sieg'].sum()
+niederlagen_sum = wygo[' Niederlage'].sum()
+unentschieden_sum = wygo[' Unentschieden'].sum()
+anz_spiele = len(wygo)
+tordifferenz = tore_wygo_sum - tore_gegner_sum
+avg_tore_wygo = tore_wygo_sum / anz_spiele
+avg_tore_gegner = tore_gegner_sum / anz_spiele
+
+# --- Streamlit-Metriken anzeigen ---
+st.subheader("Gesamtstatistik UHC Wygorazzi Herren I")
+col_full = st.columns(1)[0]
+col_full.metric("Anzahl Spiele", f"{anz_spiele}")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Tore", f"{tore_wygo_sum}")
+    st.markdown(f"<small>Ø {avg_tore_wygo:.2f} pro Spiel</small>", unsafe_allow_html=True)
+
+with col2:
+    st.metric("Gegentore", f"{tore_gegner_sum}")
+    st.markdown(f"<small>Ø {avg_tore_gegner:.2f} pro Spiel</small>", unsafe_allow_html=True)
+
+# Tordifferenz als Delta
+col3.metric("Tordifferenz", f"+{tordifferenz}")
+
+col4, col5, col6 = st.columns(3)
+col4.metric("Siege", f"{siege_sum}")
+col5.metric("Niederlagen", f"{niederlagen_sum}")
+col6.metric("Unentschieden", f"{unentschieden_sum}")
+
