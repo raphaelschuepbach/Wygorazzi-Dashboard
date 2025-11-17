@@ -15,11 +15,11 @@ df["Minus"] = df["Minus"].replace("-", np.nan).astype(float)
 # NaN-Werte durch 0 ersetzen
 df[["Plus", "Minus"]] = df[["Plus", "Minus"]].fillna(0)
 
-df["Spiele"] = df["Gespielt"].map({"Ja": 1, "Nein": 0})
+
 
 
 # Plus-Minus und Punkte berechnen
-df["PlusMinus"] = (df["Plus"] - df["Minus"]) / df["Spiele"]
+df["PlusMinus"] = (df["Plus"] - df["Minus"]) 
 df["Punkte"] = df["T"] + df["A"]
 
 # Bully-Statistiken aggregieren
