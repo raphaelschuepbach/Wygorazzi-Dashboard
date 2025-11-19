@@ -191,6 +191,9 @@ def plot_linie(df_in):
     if "PlusMinus_L" not in df_in.columns:
         df_in["PlusMinus_L"] = 0
 
+    # Zeilen mit Linie "0" entfernen
+    df_in = df_in[df_in["Linie"] != "0"]
+
     # Mittelwert pro Linie berechnen
     top = df_in.groupby("Linie")["PlusMinus_L"].mean().reset_index()
 
@@ -202,7 +205,7 @@ def plot_linie(df_in):
         text="PlusMinus_L"
     )
     fig.update_traces(
-        texttemplate='%{text}',
+        texttemplate='%{text:.2f}',  # optional: auf 2 Dezimalstellen runden
         textposition='inside',
         showlegend=False
     )
@@ -217,6 +220,7 @@ def plot_linie(df_in):
         modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"]
     )
     return fig
+
 
 
 
