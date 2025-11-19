@@ -55,7 +55,6 @@ else:
     wygo_valid_date["Datum_label"] = ""
 
 # Ensure Gegner and score columns exist exactly as you said
-# (User confirmed: "Gegner", "Tore Gegner", "Tore Wygorazzi")
 if "Gegner" not in wygo.columns:
     wygo["Gegner"] = "Gegner unbekannt"
 if "Tore Gegner" not in wygo.columns:
@@ -63,9 +62,9 @@ if "Tore Gegner" not in wygo.columns:
 if "Tore Wygorazzi" not in wygo.columns:
     wygo["Tore Wygorazzi"] = 0
 
-# Build dropdown label and sort by date desc
+# Build dropdown label and sort by date desc (only valid-dated matches)
 wygo_valid_date["Dropdown_Label"] = wygo_valid_date.apply(
-    lambda r: f"{r['Datum_label']} — vs {r['Gegner']}  (ID {r.get(MATCH_COL)})", axis=1
+    lambda r: f"{r['Datum_label']} — vs {r['Gegner']} ", axis=1
 )
 wygo_valid_date = wygo_valid_date.sort_values("Datum_parsed", ascending=False).reset_index(drop=True)
 
@@ -83,17 +82,22 @@ selection = st.selectbox("Wähle ein Spiel:", options, index=0)
 # Extract selected Match_Id (None for All)
 selected_match_id = None
 if selection != "Alle Spiele":
+    # We created labels without IDs in this variant; try to find match by date+opponent
+    # Attempt to parse date and opponent from label
     try:
-        raw_id = selection.split("(ID")[-1].replace(")", "").strip()
-        try:
-            selected_match_id = int(raw_id)
-        except:
-            selected_match_id = raw_id
-    except:
+        parts = selection.split("—")
+        date_part = parts[0].strip()
+        opponent_part = parts[1].strip().replace("vs ", "")
+        found = wygo_valid_date[
+            (wygo_valid_date["Datum_label"] == date_part) &
+            (wygo_valid_date["Gegner"].astype(str) == opponent_part)
+        ]
+        if not found.empty:
+            selected_match_id = found.iloc[0].get(MATCH_COL, None)
+    except Exception:
         selected_match_id = None
 
 # Helper: safely convert Match_Id columns in df/wygo to comparable type
-# (avoid mismatches due to strings vs ints)
 def normalize_match_col(df_obj):
     if MATCH_COL in df_obj.columns:
         try:
@@ -108,17 +112,57 @@ normalize_match_col(wygo)
 if selected_match_id is None:
     df_for_plots = df.copy()
 else:
+    # filter by match id
     df_for_plots = df[df[MATCH_COL] == selected_match_id].copy()
+
+# ---------------------------
+# Ensure numeric preprocessing for df_for_plots (fixes PlusMinus, Punkte, etc.)
+# ---------------------------
+def preprocess_player_stats(df_in):
+    # Coerce columns to numeric where needed, fillna with 0
+    for col in ["Plus", "Minus", "T", "A", "Bully-Plus", "Bully-Minus", "Linie-Plus", "Linie-Minus"]:
+        if col in df_in.columns:
+            df_in[col] = pd.to_numeric(df_in[col].replace("-", np.nan), errors="coerce").fillna(0)
+    # Compute PlusMinus
+    if ("Plus" in df_in.columns) and ("Minus" in df_in.columns):
+        df_in["PlusMinus"] = df_in["Plus"] - df_in["Minus"]
+    else:
+        df_in["PlusMinus"] = pd.to_numeric(df_in.get("PlusMinus", 0), errors="coerce").fillna(0)
+    # Punkte
+    if "T" in df_in.columns and "A" in df_in.columns:
+        df_in["Punkte"] = df_in["T"].fillna(0) + df_in["A"].fillna(0)
+    else:
+        df_in["Punkte"] = pd.to_numeric(df_in.get("Punkte", 0), errors="coerce").fillna(0)
+    # Linie PlusMinus
+    if "Linie-Plus" in df_in.columns and "Linie-Minus" in df_in.columns:
+        df_in["PlusMinus_L"] = df_in["Linie-Plus"] - df_in["Linie-Minus"]
+    else:
+        # fallback aggregate by Linie if PlusMinus exists
+        if "PlusMinus" in df_in.columns and "Linie" in df_in.columns:
+            # compute on-the-fly if needed (not stored per-player)
+            df_in["PlusMinus_L"] = df_in.get("PlusMinus_L", 0)
+        else:
+            df_in["PlusMinus_L"] = df_in.get("PlusMinus_L", 0)
+    # Ensure Linie as str
+    if "Linie" in df_in.columns:
+        df_in["Linie"] = df_in["Linie"].astype(str)
+    else:
+        df_in["Linie"] = "0"
+    return df_in
+
+# Preprocess the df_for_plots (so single-match and all-plots use same cleaned data)
+df_for_plots = preprocess_player_stats(df_for_plots)
+
+# Also preprocess main df used for "Alle Spiele" view when needed later
+df = preprocess_player_stats(df)
 
 # ---------------------------
 # Function: generic top-bar plots using df_for_plots
 # ---------------------------
 def plot_top(df_in, column, title):
-    # If column missing, create zeros to avoid errors
     if column not in df_in.columns:
         df_in[column] = 0
     top = df_in.groupby("Name")[column].sum().sort_values(ascending=False).head(13).reset_index()
-    # handle if column numeric or not
     fig = px.bar(top, x="Name", y=column, title=title, text=column)
     fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
     fig.update_layout(yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
@@ -126,11 +170,13 @@ def plot_top(df_in, column, title):
     return fig
 
 def plot_bully(df_in):
-    if "Bully-Plus" not in df_in.columns or "Bully-Minus" not in df_in.columns:
-        df_in["Bully-Plus"] = df_in.get("Bully-Plus", 0)
-        df_in["Bully-Minus"] = df_in.get("Bully-Minus", 0)
+    if "Bully-Plus" not in df_in.columns:
+        df_in["Bully-Plus"] = 0
+    if "Bully-Minus" not in df_in.columns:
+        df_in["Bully-Minus"] = 0
     bully = df_in.groupby("Name")[["Bully-Plus", "Bully-Minus"]].sum().reset_index()
-    bully["Bully-Gewinn %"] = 100 * bully["Bully-Plus"] / (bully["Bully-Plus"] + bully["Bully-Minus"]).replace({0: np.nan})
+    denom = (bully["Bully-Plus"] + bully["Bully-Minus"]).replace({0: np.nan})
+    bully["Bully-Gewinn %"] = 100 * bully["Bully-Plus"] / denom
     bully["Bully-Gewinn %"] = bully["Bully-Gewinn %"].fillna(0)
     top = bully.sort_values("Bully-Gewinn %", ascending=False).head(13)
     fig = px.bar(top, x="Name", y="Bully-Gewinn %", title="Bully-Gewinnquote", text="Bully-Gewinn %")
@@ -140,23 +186,10 @@ def plot_bully(df_in):
     return fig
 
 def plot_linie(df_in):
-    # need PlusMinus_L per player aggregated by Linie
     if "Linie" not in df_in.columns:
         df_in["Linie"] = "0"
-    if "Linie-Plus" in df_in.columns and "Linie-Minus" in df_in.columns:
-        df_in["PlusMinus_L"] = df_in["Linie-Plus"] - df_in["Linie-Minus"]
-    else:
-        # fallback: aggregate PlusMinus by Linie if exists
-        if "PlusMinus" in df_in.columns:
-            tmp = df_in.groupby("Linie")["PlusMinus"].sum().reset_index().rename(columns={"PlusMinus":"PlusMinus_L"})
-            df_plot = tmp
-            fig = px.bar(df_plot, x="Linie", y="PlusMinus_L", title="Plus-Minus nach Linie", text="PlusMinus_L")
-            fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
-            fig.update_layout(xaxis=dict(type="category"), yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
-            fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
-            return fig
-        else:
-            df_in["PlusMinus_L"] = 0
+    if "PlusMinus_L" not in df_in.columns:
+        df_in["PlusMinus_L"] = 0
     top = df_in.groupby("Linie")["PlusMinus_L"].sum().reset_index()
     fig = px.bar(top, x="Linie", y="PlusMinus_L", title="Plus-Minus nach Linie", text="PlusMinus_L")
     fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
@@ -165,7 +198,7 @@ def plot_linie(df_in):
     return fig
 
 # ---------------------------
-# When a single match is selected: show header, lines, player table, metrics, and the same plots but filtered
+# When a single match is selected: header, lines, player table, metrics, and the same plots but filtered
 # ---------------------------
 if selected_match_id is not None:
     # get wygo meta row for this match if exists
@@ -175,11 +208,23 @@ if selected_match_id is not None:
     else:
         meta = None
 
-    # Try to extract scores
-    tore_w = int(meta["Tore Wygorazzi"]) if (meta is not None and "Tore Wygorazzi" in meta and pd.notna(meta["Tore Wygorazzi"])) else 0
-    tore_g = int(meta["Tore Gegner"]) if (meta is not None and "Tore Gegner" in meta and pd.notna(meta["Tore Gegner"])) else 0
+    # Try to extract scores (robustly)
+    try:
+        tore_w = int(meta["Tore Wygorazzi"]) if (meta is not None and "Tore Wygorazzi" in meta and pd.notna(meta["Tore Wygorazzi"])) else 0
+    except:
+        tore_w = 0
+    try:
+        tore_g = int(meta["Tore Gegner"]) if (meta is not None and "Tore Gegner" in meta and pd.notna(meta["Tore Gegner"])) else 0
+    except:
+        tore_g = 0
+
     opponent = meta["Gegner"] if (meta is not None and "Gegner" in meta) else "Gegner unbekannt"
-    datum_label = meta["Datum"].strftime("%Y-%m-%d") if (meta is not None and hasattr(meta["Datum"], "strftime")) else (meta["Datum"] if (meta is not None and "Datum" in meta) else "")
+    datum_label = ""
+    if meta is not None and "Datum" in meta and pd.notna(meta["Datum"]):
+        try:
+            datum_label = pd.to_datetime(meta["Datum"]).strftime("%Y-%m-%d")
+        except:
+            datum_label = str(meta["Datum"])
 
     # Header
     st.markdown("<div class='result-box'>", unsafe_allow_html=True)
@@ -208,12 +253,52 @@ if selected_match_id is not None:
                 st.markdown("<div class='subtle'>Keine Spieler</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-   
-
+    st.markdown("---")
+    st.markdown("### Spielerstatistik für dieses Match (alle Spalten)")
+    match_players_df = df[df[MATCH_COL] == selected_match_id].copy()
+    if match_players_df.empty:
+        st.info("Für dieses Match sind keine Spielerstatistiken im `df` vorhanden.")
+    else:
+        # ensure Punkte exists
+        if "T" in match_players_df.columns and "A" in match_players_df.columns and "Punkte" not in match_players_df.columns:
+            match_players_df["Punkte"] = match_players_df["T"].fillna(0) + match_players_df["A"].fillna(0)
+        st.dataframe(match_players_df.reset_index(drop=True), use_container_width=True)
+        csv_bytes = match_players_df.to_csv(index=False).encode("utf-8")
+        st.download_button("Spielerstatistik als CSV herunterladen", data=csv_bytes,
+                           file_name=f"Spielerstatistik_Match_{selected_match_id}.csv", mime="text/csv")
 
     st.markdown("---")
-    st.markdown("### Spieler-Statistikplots für dieses Match")
-    # Use df_for_plots (which is filtered to selected match)
+    st.markdown("### Match-Kennzahlen")
+    kcols = st.columns(6)
+    kcols[0].metric("Tore Wygorazzi", f"{tore_w}")
+    kcols[1].metric("Tore Gegner", f"{tore_g}")
+    kcols[2].metric("Tordiff", f"{tore_w - tore_g:+d}")
+    # safe flags from wygo
+    sieg_val = 0
+    nd_val = 0
+    unent_val = 0
+    if meta is not None:
+        if "Sieg" in wygo.columns:
+            try:
+                sieg_val = int(pd.to_numeric(meta.get("Sieg", 0), errors="coerce") or 0)
+            except:
+                sieg_val = 0
+        if "Niederlage" in wygo.columns:
+            try:
+                nd_val = int(pd.to_numeric(meta.get("Niederlage", 0), errors="coerce") or 0)
+            except:
+                nd_val = 0
+        if "Unentschieden" in wygo.columns:
+            try:
+                unent_val = int(pd.to_numeric(meta.get("Unentschieden", 0), errors="coerce") or 0)
+            except:
+                unent_val = 0
+    kcols[3].metric("Sieg", "Ja" if sieg_val == 1 else "Nein")
+    kcols[4].metric("Niederlage", "Ja" if nd_val == 1 else "Nein")
+    kcols[5].metric("Unentschieden", "Ja" if unent_val == 1 else "Nein")
+
+    st.markdown("---")
+    st.markdown("### Spieler-Statistikplots für dieses Match (gefiltert)")
     left_col, right_col = st.columns([2, 1])
     with left_col:
         st.plotly_chart(plot_top(df_for_plots, "T", "Tore (Top in Auswahl)"), use_container_width=True, config={'staticPlot': True})
@@ -225,36 +310,10 @@ if selected_match_id is not None:
         st.plotly_chart(plot_linie(df_for_plots), use_container_width=True, config={'staticPlot': True})
 
 # ---------------------------
-# If "Alle Spiele" selected: show full dashboard (as before)
+# If "Alle Spiele" selected: show full dashboard (as before) plus wygo season stats fixed
 # ---------------------------
 if selection == "Alle Spiele":
-    # Preprocessing similar to your original code
-    if "Linie" in df.columns:
-        df["Linie"] = df["Linie"].astype(str)
-    else:
-        df["Linie"] = "0"
-
-    for col in ["Plus", "Minus"]:
-        if col in df.columns:
-            df[col] = df[col].replace("-", np.nan)
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        else:
-            df[col] = 0
-
-    if "Bully-Plus" not in df.columns: df["Bully-Plus"] = df.get("Bully-Plus", 0)
-    if "Bully-Minus" not in df.columns: df["Bully-Minus"] = df.get("Bully-Minus", 0)
-
-    df["PlusMinus"] = df["Plus"] - df["Minus"] if ("Plus" in df.columns and "Minus" in df.columns) else df.get("PlusMinus", 0)
-    if "T" in df.columns and "A" in df.columns:
-        df["Punkte"] = df["T"].fillna(0) + df["A"].fillna(0)
-    else:
-        df["Punkte"] = df.get("Punkte", 0)
-
-    # For Linie plot
-    if "Linie-Plus" in df.columns and "Linie-Minus" in df.columns:
-        df["PlusMinus_L"] = df["Linie-Plus"] - df["Linie-Minus"]
-    else:
-        df["PlusMinus_L"] = df.get("PlusMinus_L", 0)
+    # df already preprocessed above
 
     # Plots
     st.markdown("## Gesamt- und Saisonstatistiken")
@@ -269,8 +328,16 @@ if selection == "Alle Spiele":
         st.plotly_chart(plot_linie(df), use_container_width=True, config={'staticPlot': True})
 
     st.markdown("---")
-    # Wygo aggregate stats (as previously)
+    # Wygo aggregate stats per season (fix counts for Sieg/Niederlage/Unentschieden)
     st.subheader("Wygo - Gesamt- und Saisonkennzahlen")
+
+    # Ensure the flag columns are numeric 0/1
+    for flag in ["Sieg", "Niederlage", "Unentschieden"]:
+        if flag in wygo.columns:
+            wygo[flag] = pd.to_numeric(wygo[flag], errors="coerce").fillna(0).astype(int)
+        else:
+            wygo[flag] = 0
+
     saisons = {"Gesamt": wygo}
     if "Saison" in wygo.columns:
         unique_saisons = wygo["Saison"].dropna().unique().tolist()
@@ -278,17 +345,12 @@ if selection == "Alle Spiele":
             saisons[s] = wygo[wygo["Saison"] == s]
 
     def zeige_statistik(df_s, titel):
-        try:
-            tore_wygo_sum = int(pd.to_numeric(df_s['Tore Wygorazzi'], errors='coerce').fillna(0).sum())
-        except:
-            tore_wygo_sum = 0
-        try:
-            tore_gegner_sum = int(pd.to_numeric(df_s['Tore Gegner'], errors='coerce').fillna(0).sum())
-        except:
-            tore_gegner_sum = 0
-        siege_sum = int(pd.to_numeric(df_s['Sieg'], errors='coerce').fillna(0).sum()) if 'Sieg' in df_s.columns else 0
-        niederlagen_sum = int(pd.to_numeric(df_s['Niederlage'], errors='coerce').fillna(0).sum()) if 'Niederlage' in df_s.columns else 0
-        unentschieden_sum = int(pd.to_numeric(df_s['Unentschieden'], errors='coerce').fillna(0).sum()) if 'Unentschieden' in df_s.columns else 0
+        # Safe numeric sums
+        tore_wygo_sum = int(pd.to_numeric(df_s.get('Tore Wygorazzi', 0), errors='coerce').fillna(0).sum())
+        tore_gegner_sum = int(pd.to_numeric(df_s.get('Tore Gegner', 0), errors='coerce').fillna(0).sum())
+        siege_sum = int(pd.to_numeric(df_s.get('Sieg', 0), errors='coerce').fillna(0).sum())
+        niederlagen_sum = int(pd.to_numeric(df_s.get('Niederlage', 0), errors='coerce').fillna(0).sum())
+        unentschieden_sum = int(pd.to_numeric(df_s.get('Unentschieden', 0), errors='coerce').fillna(0).sum())
         anz_spiele = len(df_s)
         tordifferenz = tore_wygo_sum - tore_gegner_sum
         avg_tore_wygo = tore_wygo_sum / anz_spiele if anz_spiele > 0 else 0
@@ -311,6 +373,7 @@ if selection == "Alle Spiele":
             st.metric("Gegentore", f"{tore_gegner_sum}")
             st.markdown(f"<small>Ø {avg_tore_gegner:.2f} pro Spiel</small>", unsafe_allow_html=True)
         col3.metric("Tordifferenz", f"{tordifferenz:+d}")
+
         col4, col5, col6 = st.columns(3)
         col4.metric("Siege", f"{siege_sum}")
         col5.metric("Niederlagen", f"{niederlagen_sum}")
@@ -319,5 +382,5 @@ if selection == "Alle Spiele":
     for saison_name, df_saison in saisons.items():
         zeige_statistik(df_saison, saison_name)
 
-st.markdown("---")
-st.markdown("<div class='subtle'>Hinweis: Nur Spiele mit einem gültigen Datum erscheinen im Dropdown. Wenn etwas nicht korrekt angezeigt wird, sende mir bitte die exakten Spaltennamen oder ein Beispiel-CSV.</div>", unsafe_allow_html=True)
+
+    
