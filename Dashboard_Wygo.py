@@ -312,7 +312,7 @@ if selection == "Alle Spiele":
             st.markdown(f"<small>Ø {avg_tore_gegner:.2f} pro Spiel</small>", unsafe_allow_html=True)
         col3.metric("Tordifferenz", f"{tordifferenz:+d}")
         col4, col5, col6 = st.columns(3)
-        col4.metric("Siege", f"{sieg_sum}")
+        col4.metric("Siege", f"{siege_sum}")
         col5.metric("Niederlagen", f"{niederlagen_sum}")
         col6.metric("Unentschieden", f"{unentschieden_sum}")
 
