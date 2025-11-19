@@ -208,6 +208,16 @@ def plot_bully(df_in):
 
 def plot_linie(df_in):
     
+    
+    
+    
+    if "Linie" not in df_in.columns:
+        df_in["Linie"] = "0"
+    if "PlusMinus_L" not in df_in.columns:
+        df_in["PlusMinus_L"] = 0
+
+    # Zeilen mit Linie "0" entfernen
+    df_in = df_in[df_in["Linie"] != "0"]
 
     # Mittelwert pro Linie berechnen
     top = df_in.groupby("Linie")["PlusMinus_L"].mean().reset_index()
