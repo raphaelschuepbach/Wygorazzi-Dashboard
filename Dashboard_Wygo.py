@@ -206,11 +206,7 @@ def plot_bully(df_in):
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
 
-def plot_linie(df_in):
-    
-    
-    
-    
+def plot_linie(df_in, selected_match_id=None):
     if "Linie" not in df_in.columns:
         df_in["Linie"] = "0"
     if "PlusMinus_L" not in df_in.columns:
@@ -218,14 +214,14 @@ def plot_linie(df_in):
 
     # Zeilen mit Linie "0" entfernen
     df_in = df_in[df_in["Linie"] != "0"]
-    
-     # Mittelwert pro Linie pro Spiel
-    per_game = df_in.groupby([MATCH_COL, "Linie"])["PlusMinus_L"].mean().reset_index()
 
-    # Dann Mittelwert pro Linie über alle Spiele
-    top = per_game.groupby("Linie")["PlusMinus_L"].mean().reset_index()
-
-    
+    if selected_match_id is not None:
+        # Einzelnes Spiel → Mittelwert pro Linie
+        top = df_in.groupby("Linie")["PlusMinus_L"].mean().reset_index()
+    else:
+        # Alle Spiele → Mittelwert pro Linie **pro Spiel**, dann Summe über Spiele
+        per_game = df_in.groupby([MATCH_COL, "Linie"])["PlusMinus_L"].mean().reset_index()
+        top = per_game.groupby("Linie")["PlusMinus_L"].sum().reset_index()
 
     fig = px.bar(
         top,
@@ -250,6 +246,7 @@ def plot_linie(df_in):
         modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"]
     )
     return fig
+
 
 
 
