@@ -191,29 +191,21 @@ def plot_linie(df_in):
     if "PlusMinus_L" not in df_in.columns:
         df_in["PlusMinus_L"] = 0
 
-    # Linie 0 ausschließen
-    df_filtered = df_in[df_in["Linie"] != "0"].copy()
-
-    if df_filtered.empty:
-        # Falls keine Linien >0 vorhanden
-        return px.bar(title="Keine Linien mit Spielern vorhanden")
-
-    # Gruppieren nach Linie
-    grouped = df_filtered.groupby("Linie")["PlusMinus_L"].sum()
-    count_players = df_filtered.groupby("Linie")["Name"].count()  # Anzahl Spieler pro Linie
-
-    # Mittelwert pro Spieler
-    mean_plusminus = (grouped / count_players).reset_index()
-    mean_plusminus.rename(columns={"PlusMinus_L": "PlusMinus_L_avg"}, inplace=True)
+    # Mittelwert pro Linie berechnen
+    top = df_in.groupby("Linie")["PlusMinus_L"].mean().reset_index()
 
     fig = px.bar(
-        mean_plusminus,
+        top,
         x="Linie",
-        y="PlusMinus_L_avg",
-        title="Plus-Minus nach Linie (pro Spieler)",
-        text="PlusMinus_L_avg"
+        y="PlusMinus_L",
+        title="Plus-Minus nach Linie",
+        text="PlusMinus_L"
     )
-    fig.update_traces(texttemplate='%{text:.1f}', textposition='inside', showlegend=False)
+    fig.update_traces(
+        texttemplate='%{text}',
+        textposition='inside',
+        showlegend=False
+    )
     fig.update_layout(
         xaxis=dict(type="category"),
         yaxis_title=None,
@@ -221,8 +213,11 @@ def plot_linie(df_in):
         title_x=0.02,
         margin=dict(t=40, b=20)
     )
-    fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
+    fig.update_layout(
+        modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"]
+    )
     return fig
+
 
 
 
