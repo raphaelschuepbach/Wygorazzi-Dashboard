@@ -190,7 +190,8 @@ def plot_linie(df_in):
         df_in["Linie"] = "0"
     if "PlusMinus_L" not in df_in.columns:
         df_in["PlusMinus_L"] = 0
-    top = df_in.groupby("Linie")["PlusMinus_L"].sum().reset_index()
+    top = (df_in.groupby("Linie")["PlusMinus_L"].sum()) / 3
+    top = top.reset_index()
     fig = px.bar(top, x="Linie", y="PlusMinus_L", title="Plus-Minus nach Linie", text="PlusMinus_L")
     fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
     fig.update_layout(xaxis=dict(type="category"), yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
@@ -261,11 +262,11 @@ if selected_match_id is not None:
     st.markdown("### Spieler-Statistikplots für dieses Match")
     left_col, right_col = st.columns([2, 1])
     with left_col:
-        st.plotly_chart(plot_top(df_for_plots, "T", "Tore (Top in Auswahl)"), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df_for_plots, "A", "Assists (Top in Auswahl)"), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df_for_plots, "Punkte", "Punkte (T+A) (Top in Auswahl)"), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df_for_plots, "T", "Tore "), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df_for_plots, "A", "Assists "), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df_for_plots, "Punkte", "Punkte (T+A) "), use_container_width=True, config={'staticPlot': True})
     with right_col:
-        st.plotly_chart(plot_top(df_for_plots, "PlusMinus", "Plus-Minus (Top in Auswahl)"), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df_for_plots, "PlusMinus", "Plus-Minus "), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_bully(df_for_plots), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_linie(df_for_plots), use_container_width=True, config={'staticPlot': True})
 
