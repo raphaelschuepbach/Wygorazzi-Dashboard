@@ -31,7 +31,7 @@ st.markdown(
         font-size: 16px;
     }
     .player-name {
-        color: #111111;  /* dunkler Text für Spieler */
+        color: #f0f0f0;  /* dunkler Text für Spieler */
         margin-left: 10px;
     }
     .subtle {
