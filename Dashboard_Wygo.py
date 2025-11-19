@@ -218,9 +218,14 @@ def plot_linie(df_in):
 
     # Zeilen mit Linie "0" entfernen
     df_in = df_in[df_in["Linie"] != "0"]
+    
+     # Mittelwert pro Linie pro Spiel
+    per_game = df_in.groupby([MATCH_COL, "Linie"])["PlusMinus_L"].mean().reset_index()
 
-    # Mittelwert pro Linie berechnen
-    top = df_in.groupby("Linie")["PlusMinus_L"].mean().reset_index()
+    # Dann Mittelwert pro Linie über alle Spiele
+    top = per_game.groupby("Linie")["PlusMinus_L"].mean().reset_index()
+
+    
 
     fig = px.bar(
         top,
