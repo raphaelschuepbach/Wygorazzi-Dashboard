@@ -205,7 +205,7 @@ def plot_linie(df_in):
         text="PlusMinus_L"
     )
     fig.update_traces(
-        texttemplate='%{text:.2f}',  # optional: auf 2 Dezimalstellen runden
+        texttemplate='%{text:.0f}',  # Rundung auf ganze Zahl
         textposition='inside',
         showlegend=False
     )
@@ -220,6 +220,7 @@ def plot_linie(df_in):
         modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"]
     )
     return fig
+
 
 
 
@@ -336,9 +337,9 @@ if selection == "Alle Spiele":
         # Safe numeric sums
         tore_wygo_sum = int(pd.to_numeric(df_s.get('Tore Wygorazzi', 0), errors='coerce').fillna(0).sum())
         tore_gegner_sum = int(pd.to_numeric(df_s.get('Tore Gegner', 0), errors='coerce').fillna(0).sum())
-        siege_sum = int(pd.to_numeric(df_s.get('Sieg', 0), errors='coerce').fillna(0).sum())
-        niederlagen_sum = int(pd.to_numeric(df_s.get('Niederlage', 0), errors='coerce').fillna(0).sum())
-        unentschieden_sum = int(pd.to_numeric(df_s.get('Unentschieden', 0), errors='coerce').fillna(0).sum())
+        siege_sum = int(pd.to_numeric(df_s.get('Sieg', 1), errors='coerce').fillna(0).sum())
+        niederlagen_sum = int(pd.to_numeric(df_s.get('Niederlage', 1), errors='coerce').fillna(0).sum())
+        unentschieden_sum = int(pd.to_numeric(df_s.get('Unentschieden', 1), errors='coerce').fillna(0).sum())
         anz_spiele = len(df_s)
         tordifferenz = tore_wygo_sum - tore_gegner_sum
         avg_tore_wygo = tore_wygo_sum / anz_spiele if anz_spiele > 0 else 0
