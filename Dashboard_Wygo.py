@@ -190,13 +190,24 @@ def plot_linie(df_in):
         df_in["Linie"] = "0"
     if "PlusMinus_L" not in df_in.columns:
         df_in["PlusMinus_L"] = 0
-    top = (df_in.groupby("Linie")["PlusMinus_L"].sum()) / 3
-    top = top.reset_index()
-    fig = px.bar(top, x="Linie", y="PlusMinus_L", title="Plus-Minus nach Linie", text="PlusMinus_L")
-    fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
+
+    # Gruppieren nach Linie, nur Linien mit Spielern
+    grouped = df_in.groupby("Linie")["PlusMinus_L"].sum()
+    count_players = df_in.groupby("Linie")["Name"].count()  # Anzahl Spieler pro Linie
+
+    # Berechne Mittelwert pro Spieler
+    mean_plusminus = (grouped / count_players).reset_index()
+    mean_plusminus.rename(columns={"PlusMinus_L": "PlusMinus_L_avg"}, inplace=True)
+
+    # Nur Linien mit >0 Spielern
+    mean_plusminus = mean_plusminus[count_players > 0].reset_index(drop=True)
+
+    fig = px.bar(mean_plusminus, x="Linie", y="PlusMinus_L_avg", title="Plus-Minus nach Linie (pro Spieler)", text="PlusMinus_L_avg")
+    fig.update_traces(texttemplate='%{text:.1f}', textposition='inside', showlegend=False)
     fig.update_layout(xaxis=dict(type="category"), yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
+
 
 # ---------------------------
 # When a single match is selected: header, lines, player table, metrics, and the same plots but filtered
