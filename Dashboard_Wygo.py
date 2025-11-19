@@ -212,19 +212,7 @@ if selected_match_id is not None:
     st.markdown("### Spielerstatistik für dieses Match (alle Spalten)")
     match_players_df = df[df[MATCH_COL] == selected_match_id].copy()
 
-    if match_players_df.empty:
-        st.info("Für dieses Match sind keine Spielerstatistiken im `df` vorhanden.")
-    else:
-        # ensure Punkte column exists as before
-        if "T" in match_players_df.columns and "A" in match_players_df.columns and "Punkte" not in match_players_df.columns:
-            match_players_df["Punkte"] = match_players_df["T"].fillna(0) + match_players_df["A"].fillna(0)
-
-        st.dataframe(match_players_df.reset_index(drop=True), use_container_width=True)
-
-        # Download CSV
-        csv_bytes = match_players_df.to_csv(index=False).encode("utf-8")
-        st.download_button("Spielerstatistik als CSV herunterladen", data=csv_bytes,
-                           file_name=f"Spielerstatistik_Match_{selected_match_id}.csv", mime="text/csv")
+    
 
     st.markdown("---")
     st.markdown("### Match-Kennzahlen")
@@ -232,12 +220,7 @@ if selected_match_id is not None:
     kcols[0].metric("Tore Wygorazzi", f"{tore_w}")
     kcols[1].metric("Tore Gegner", f"{tore_g}")
     kcols[2].metric("Tordiff", f"{tore_w - tore_g:+d}")
-    sieg_val = int(meta["Sieg"]) if (meta is not None and "Sieg" in meta and not pd.isna(meta["Sieg"])) else 0
-    nd_val = int(meta["Niederlage"]) if (meta is not None and "Niederlage" in meta and not pd.isna(meta["Niederlage"])) else 0
-    unent_val = int(meta["Unentschieden"]) if (meta is not None and "Unentschieden" in meta and not pd.isna(meta["Unentschieden"])) else 0
-    kcols[3].metric("Sieg", "Ja" if sieg_val == 1 else "Nein")
-    kcols[4].metric("Niederlage", "Ja" if nd_val == 1 else "Nein")
-    kcols[5].metric("Unentschieden", "Ja" if unent_val == 1 else "Nein")
+
 
     st.markdown("---")
     st.markdown("### Spieler-Statistikplots für dieses Match")
