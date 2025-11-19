@@ -73,12 +73,12 @@ wygo_valid_date = wygo_valid_date.sort_values("Datum_parsed", ascending=False).r
 # Top header + dropdown
 # ---------------------------
 st.markdown('<div class="header-row"><div><h1 class="big-title">Spielerstatistik UHC Wygorazzi</h1>'
-            '<div class="subtle">Saison 25/26 — interaktives Dashboard</div></div></div>',
+            '<div class="subtle">Saison 25/26 — </div></div></div>',
             unsafe_allow_html=True)
 st.markdown("---")
 
 options = ["Alle Spiele"] + wygo_valid_date["Dropdown_Label"].tolist()
-selection = st.selectbox("Wähle ein Spiel (nur Einträge mit Datum):", options, index=0)
+selection = st.selectbox("Wähle ein Spiel:", options, index=0)
 
 # Extract selected Match_Id (None for All)
 selected_match_id = None
@@ -208,18 +208,7 @@ if selected_match_id is not None:
                 st.markdown("<div class='subtle'>Keine Spieler</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("### Spielerstatistik für dieses Match (alle Spalten)")
-    match_players_df = df[df[MATCH_COL] == selected_match_id].copy()
-
-    
-
-    st.markdown("---")
-    st.markdown("### Match-Kennzahlen")
-    kcols = st.columns(6)
-    kcols[0].metric("Tore Wygorazzi", f"{tore_w}")
-    kcols[1].metric("Tore Gegner", f"{tore_g}")
-    kcols[2].metric("Tordiff", f"{tore_w - tore_g:+d}")
+   
 
 
     st.markdown("---")
