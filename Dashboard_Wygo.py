@@ -207,13 +207,7 @@ def plot_bully(df_in):
     return fig
 
 def plot_linie(df_in):
-    if "Linie" not in df_in.columns:
-        df_in["Linie"] = "0"
-    if "PlusMinus_L" not in df_in.columns:
-        df_in["PlusMinus_L"] = 0
-
-    # Zeilen mit Linie "0" entfernen
-    df_in = df_in[df_in["Linie"] != "0"]
+    
 
     # Mittelwert pro Linie berechnen
     top = df_in.groupby("Linie")["PlusMinus_L"].mean().reset_index()
@@ -329,11 +323,11 @@ if selection == "Alle Spiele":
     st.markdown("## Gesamt- und Saisonstatistiken")
     left_col, right_col = st.columns([2, 1])
     with left_col:
-        st.plotly_chart(plot_top(df, "T", "Tore (Top 13)"), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df, "A", "Assists (Top 13)"), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df, "Punkte", "Punkte (T+A) (Top 13)"), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df, "T", "Tore "), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df, "A", "Assists "), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df, "Punkte", "Punkte (T+A) "), use_container_width=True, config={'staticPlot': True})
     with right_col:
-        st.plotly_chart(plot_top(df, "PlusMinus", "Plus-Minus (Top 13)"), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df, "PlusMinus", "Plus-Minus "), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_bully(df), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_linie(df), use_container_width=True, config={'staticPlot': True})
 
