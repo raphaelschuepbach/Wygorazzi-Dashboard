@@ -15,10 +15,31 @@ st.markdown(
     .big-title {font-size:28px; font-weight:700; color:#073763; margin-bottom:0.2rem;}
     .subtle {color: #6b7280; font-size:13px;}
     .result-box {background:linear-gradient(90deg, rgba(7,55,99,0.04), rgba(255,255,255,0.0)); padding:14px; border-radius:12px;}
-    .line-card {background:#ffffff; padding:10px; border-radius:8px; box-shadow: 0 1px 6px rgba(0,0,0,0.06); margin-bottom:8px;}
+    
     .player-name {font-size:14px; margin:4px 0;}
     .small-metric {font-size:13px; color:#374151;}
     .header-row {display:flex; justify-content:space-between; align-items:center;}
+    
+    .line-card {
+        background-color: #f0f0f0;  /* hellgrauer Hintergrund */
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 8px;
+    }
+    .line-card strong {
+        color: #333333;  /* dunkle Überschrift */
+        font-size: 16px;
+    }
+    .player-name {
+        color: #111111;  /* dunkler Text für Spieler */
+        margin-left: 10px;
+    }
+    .subtle {
+        color: #666666;  /* grauer Text für "Keine Spieler" */
+        font-style: italic;
+        margin-left: 10px;
+    }   
+
     </style>
     """,
     unsafe_allow_html=True
