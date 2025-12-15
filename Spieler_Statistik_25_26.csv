@@ -109,6 +109,7 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 91,Ja,R.Moser,0,0,0,2,0,1,2,2,0,0,0,0,0,2
 91,Nein,B.Jordi,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 91,Nein,M.Nyffenegger,0,0,-,-,0,0,0,0,0,0,0,0,0,0
+91,Ja,C.Mühle,0,0,3,5,0,0,0,3,0,0,0,0,3,5
 92,Nein,C.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 92,Ja,D.Geissbühler,0,1,1,4,0,0,0,1,0,0,0,0,1,4
 92,Ja,B.Lüthi,0,0,1,4,0,0,0,1,0,0,0,0,1,4
@@ -120,4 +121,5 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 92,Ja,R.Moser,1,0,1,2,0,3,2,2,0,0,0,0,1,2
 92,Ja,B.Jordi,0,0,2,6,0,0,0,0,0,0,0,0,0,0
 92,Nein,M.Nyffenegger,0,0,-,-,0,0,0,0,0,0,0,0,0,0
+92,Ja,C.Mühle,0,0,0,0,0,0,0,3,0,0,0,0,0,0
 
