@@ -141,7 +141,7 @@ else:
 # ---------------------------
 def preprocess_player_stats(df_in):
     # Coerce columns to numeric where needed, fillna with 0
-    for col in ["Plus", "Minus", "T", "A", "Bully-Plus", "Bully-Minus", "Linie-Plus", "Linie-Minus"]:
+    for col in ["Plus", "Minus", "T", "A", "Bully-Plus", "Bully-Minus", "Linie-Plus", "Linie-Minus", "Strafen"]:
         if col in df_in.columns:
             df_in[col] = pd.to_numeric(df_in[col].replace("-", np.nan), errors="coerce").fillna(0)
     # Compute PlusMinus
@@ -183,9 +183,23 @@ df = preprocess_player_stats(df)
 def plot_top(df_in, column, title):
     if column not in df_in.columns:
         df_in[column] = 0
-    top = df_in.groupby("Name")[column].sum().sort_values(ascending=False).head(13).reset_index()
-    fig = px.bar(top, x="Name", y=column, title=title, text=column)
-    fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
+    
+    # Spezialbehandlung für PlusMinus: durch Anzahl gespielte Spiele teilen
+    if column == "PlusMinus":
+        # Zähle gespielte Spiele pro Spieler (nur "Ja")
+        gespielt_count = df_in[df_in.get("Gespielt", "Nein") == "Ja"].groupby("Name").size()
+        # Summiere PlusMinus pro Spieler
+        plusminus_sum = df_in.groupby("Name")[column].sum()
+        # Berechne Durchschnitt
+        top = (plusminus_sum / gespielt_count).fillna(0).sort_values(ascending=False).head(13).reset_index()
+        top.columns = ["Name", column]
+        fig = px.bar(top, x="Name", y=column, title=title, text=column)
+        fig.update_traces(texttemplate='%{text:.2f}', textposition='inside', showlegend=False)
+    else:
+        top = df_in.groupby("Name")[column].sum().sort_values(ascending=False).head(13).reset_index()
+        fig = px.bar(top, x="Name", y=column, title=title, text=column)
+        fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
+    
     fig.update_layout(yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
@@ -206,52 +220,17 @@ def plot_bully(df_in):
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
 
-def plot_linie(df_in, selected_match_id=None):
-    if "Linie" not in df_in.columns:
-        df_in["Linie"] = "0"
-    if "PlusMinus_L" not in df_in.columns:
-        df_in["PlusMinus_L"] = 0
-
-    # Zeilen mit Linie "0" entfernen
-    df_in = df_in[df_in["Linie"] != "0"]
-
-    if selected_match_id is not None:
-        # Einzelnes Spiel → Mittelwert pro Linie
-        top = df_in.groupby("Linie")["PlusMinus_L"].mean().reset_index()
-    else:
-        # Alle Spiele → Mittelwert pro Linie **pro Spiel**, dann Summe über Spiele
-        per_game = df_in.groupby([MATCH_COL, "Linie"])["PlusMinus_L"].mean().reset_index()
-        top = per_game.groupby("Linie")["PlusMinus_L"].sum().reset_index()
-
-    fig = px.bar(
-        top,
-        x="Linie",
-        y="PlusMinus_L",
-        title="Plus-Minus nach Linie",
-        text="PlusMinus_L"
-    )
-    fig.update_traces(
-        texttemplate='%{text:.0f}',  # Rundung auf ganze Zahl
-        textposition='inside',
-        showlegend=False
-    )
-    fig.update_layout(
-        xaxis=dict(type="category"),
-        yaxis_title=None,
-        xaxis_title=None,
-        title_x=0.02,
-        margin=dict(t=40, b=20)
-    )
-    fig.update_layout(
-        modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"]
-    )
+def plot_gespielt(df_in):
+    if "Gespielt" not in df_in.columns:
+        df_in["Gespielt"] = "Nein"
+    # Zähle nur "Ja" Werte pro Spieler
+    gespielt = df_in[df_in["Gespielt"] == "Ja"].groupby("Name").size().reset_index(name="Anzahl Spiele")
+    top = gespielt.sort_values("Anzahl Spiele", ascending=False).head(13)
+    fig = px.bar(top, x="Name", y="Anzahl Spiele", title="Anzahl gespielte Spiele", text="Anzahl Spiele")
+    fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
+    fig.update_layout(yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
+    fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
-
-
-
-
-
-
 
 # ---------------------------
 # When a single match is selected: header, lines, player table, metrics, and the same plots but filtered
@@ -320,10 +299,11 @@ if selected_match_id is not None:
         st.plotly_chart(plot_top(df_for_plots, "T", "Tore "), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_top(df_for_plots, "A", "Assists "), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_top(df_for_plots, "Punkte", "Punkte (T+A) "), use_container_width=True, config={'staticPlot': True})
+        
     with right_col:
-        st.plotly_chart(plot_top(df_for_plots, "PlusMinus", "Plus-Minus "), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df_for_plots, "PlusMinus", "Plus-Minus"), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df_for_plots, "Strafen", "Strafen "), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_bully(df_for_plots), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_linie(df_for_plots), use_container_width=True, config={'staticPlot': True})
 
 # ---------------------------
 # If "Alle Spiele" selected: show full dashboard (as before) plus wygo season stats fixed
@@ -339,9 +319,10 @@ if selection == "Alle Spiele":
         st.plotly_chart(plot_top(df, "A", "Assists "), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_top(df, "Punkte", "Punkte (T+A) "), use_container_width=True, config={'staticPlot': True})
     with right_col:
-        st.plotly_chart(plot_top(df, "PlusMinus", "Plus-Minus "), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df, "PlusMinus", "Plus-Minus geteilt durch Anzahl gespielter Spiele"), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_top(df, "Strafen", "Strafen "), use_container_width=True, config={'staticPlot': True})
         st.plotly_chart(plot_bully(df), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_linie(df), use_container_width=True, config={'staticPlot': True})
+        st.plotly_chart(plot_gespielt(df), use_container_width=True, config={'staticPlot': True})
 
     st.markdown("---")
     # Wygo aggregate stats per season (fix counts for Sieg/Niederlage/Unentschieden)
@@ -350,7 +331,8 @@ if selection == "Alle Spiele":
     # Ensure the flag columns are numeric 0/1
     for flag in ["Sieg", "Niederlage", "Unentschieden"]:
         if flag in wygo.columns:
-            wygo[flag] = pd.to_numeric(wygo[flag], errors="coerce").fillna(0).astype(int)
+            # Konvertiere "Ja" zu 1, alles andere zu 0
+            wygo[flag] = wygo[flag].apply(lambda x: 1 if str(x).strip().lower() == "ja" else 0)
         else:
             wygo[flag] = 0
 
@@ -364,9 +346,9 @@ if selection == "Alle Spiele":
         # Safe numeric sums
         tore_wygo_sum = int(pd.to_numeric(df_s.get('Tore Wygorazzi', 0), errors='coerce').fillna(0).sum())
         tore_gegner_sum = int(pd.to_numeric(df_s.get('Tore Gegner', 0), errors='coerce').fillna(0).sum())
-        siege_sum = int(pd.to_numeric(df_s.get('Sieg', 1), errors='coerce').fillna(0).sum())
-        niederlagen_sum = int(pd.to_numeric(df_s.get('Niederlage', 1), errors='coerce').fillna(0).sum())
-        unentschieden_sum = int(pd.to_numeric(df_s.get('Unentschieden', 1), errors='coerce').fillna(0).sum())
+        siege_sum = int(df_s['Sieg'].sum())
+        niederlagen_sum = int(df_s['Niederlage'].sum())
+        unentschieden_sum = int(df_s['Unentschieden'].sum())
         anz_spiele = len(df_s)
         tordifferenz = tore_wygo_sum - tore_gegner_sum
         avg_tore_wygo = tore_wygo_sum / anz_spiele if anz_spiele > 0 else 0

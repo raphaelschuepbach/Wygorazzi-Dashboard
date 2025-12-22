@@ -10,7 +10,6 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 84,Ja,M.Nyffeler,0,0,0,0,0,0,0,3,0,0,0,1,0,0
 84,Ja,R.Moser,0,0,0,0,0,3,0,3,0,0,0,1,0,0
 84,Nein,B.Jordi,0,0,-,-,0,0,0,0,0,0,0,0,0,0
-84,Nein,T.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 84,Nein,M.Nyffenegger,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 83,Nein,C.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 83,Ja,D.Geissbühler,1,0,1,3,1,0,0,1,0,0,0,0,1,3
@@ -23,7 +22,6 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 83,Ja,M.Nyffeler,1,2,5,0,0,0,0,3,0,1.5,0,0,5,0.5
 83,Ja,R.Moser,3,1,5,0,0,4,1,3,0,0,0,0,5,0.5
 83,Ja,B.Jordi,0,0,6,11,0,0,0,0,0,0,0,0,0,0
-83,Nein,T.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 83,Ja,M.Nyffenegger,0,0,0,3,0,0,0,2,0,0,0,0,0,4.5
 85,Ja,C.Loosli,0,0,3,5,0,0,0,0,0,0,0,0,0,0
 85,Ja,D.Geissbühler,0,0,2,3,0,0,0,1,0,1,0,0,2,3
@@ -35,7 +33,6 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 85,Ja,N.Nyffenegger,1,0,1,1,0,0,0,3,0,0,0,0,1,0
 85,Ja,R.Moser,0,1,1,0,1,1,2,3,0,0,0,0,1,0
 85,Nein,B.Jordi,0,0,-,-,0,0,0,0,0,0,0,0,0,0
-85,Nein,T.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 85,Ja,M.Nyffenegger,0,0,2,0,0,0,0,3,0,0,0,0,1,0
 86,Nein,C.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 86,Ja,D.Geissbühler,0,0,1,1,0,0,0,1,0,0,0,0,1,1
@@ -47,7 +44,6 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 86,Ja,N.Nyffenegger,4,0,4,1,0,0,0,3,0,0,0,0,4,1
 86,Ja,R.Moser,0,1,4,1,1,1,1,3,0,0,0,0,4,1
 86,Ja,B.Jordi,0,0,6,3,0,0,0,0,0,0,0,0,0,0
-86,Ja,T.Loosli,0,0,1,1,0,0,0,2,0,0,0,0,1,1
 86,Ja,M.Nyffenegger,0,1,3,1,0,0,0,3,0,0,0,0,4,1
 87,Nein,C.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 87,Ja,D.Geissbühler,0,0,3,3,0,0,0,1,1,0,0,0,3,3
@@ -60,7 +56,6 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 87,Ja,R.Moser,1,0,1,1,0,2,0,3,0,0,0,0,1,1
 87,Ja,M.Nyffeler,0,0,1,1,0,0,0,3,1,0,0,0,1,1
 87,Ja,B.Jordi,0,1,6,4,0,0,0,0,0,0,0,0,0,0
-87,Nein,T.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 87,Nein,M.Nyffenegger,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 88,Nein,C.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 88,Ja,D.Geissbühler,0,2,2,1,0,0,0,1,0,0,0,1,2,1
@@ -70,10 +65,9 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 88,Ja,M.Geissbühler,0,2,2,1,1,1,1,2,1,0,0,1,1,1
 88,Ja,C.Mühle,1,0,1,1,0,0,1,1,0,0,0,1,1,1
 88,Ja,M.Nyffeler,0,0,0,6,0,0,0,3,0,0,0,0,0,6
-88,Ja,N.Nyffenegger,0,0,0,5,0,0,0,3,0,1,0,0,0,6
+88,Ja,N.Nyffenegger,0,0,0,5,1,0,0,3,0,1,0,0,0,6
 88,Ja,R.Moser,0,0,0,6,0,1,0,3,0,0,0,0,0,6
 88,Ja,B.Jordi,0,0,4,8,0,0,0,0,0,0,0,0,0,0
-88,Nein,T.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 88,Ja,M.Nyffenegger,0,0,0,1,0,0,0,0,0,1,0,0,0,0
 89,Ja,C.Loosli,0,0,2,8,0,0,0,0,0,0,0,0,0,0
 89,Ja,D.Geissbühler,0,0,0,4,0,0,0,3,0,0,0,1,0,2
@@ -84,7 +78,6 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 89,Ja,N.Nyffenegger,2,0,2,4,0,0,0,2,0,1,0,1,2,2
 89,Ja,R.Moser,0,0,0,3,0,2,1,1,0,0,0,1,0,4
 89,Nein,B.Jordi,0,0,-,-,0,0,0,0,0,0,0,0,0,0
-89,Ja,T.Loosli,0,0,0,1,0,0,0,3,0,0,0,0,0,2
 89,Ja,M.Nyffenegger,0,0,2,1,0,0,0,2,0,0,0,0,2,2
 90,Nein,C.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 90,Ja,D.Geissbühler,0,0,1,6,0,0,0,3,0,0,0,0,1,5
@@ -96,9 +89,8 @@ Match_Id,Gespielt,Name,T,A,Plus,Minus,Strafen,Bully-Plus,Bully-Minus,Linie,Boxpl
 90,Ja,N.Nyffenegger,2,0,2,2,0,1,1,2,0,0,0,0,0,2
 90,Ja,R.Moser,0,0,1,3,0,3,3,1,0,0,0,0,1,2
 90,Ja,B.Jordi,0,0,4,10,0,0,0,0,0,0,0,0,0,0
-90,Nein,T.Loosli,0,0,-,-,0,0,0,0,0,0,0,0,0,0
 90,Ja,M.Nyffenegger,0,0,0,3,0,0,0,2,0,0,0,0,0,2
-91,Nein,C.Loosli,0,1,7,10,0,0,0,0,0,0,0,0,0,0
+91,Ja,C.Loosli,0,1,7,10,0,0,0,0,0,0,0,0,0,0
 91,Ja,D.Geissbühler,1,1,3,3,0,0,0,1,0,0,0,0,3,4
 91,Ja,B.Lüthi,0,1,3,4,0,0,0,1,0,0,0,0,3,4
 91,Ja,L.Leuenberger,4,0,4,4,0,3,3,1,0,0,0,0,3,4
