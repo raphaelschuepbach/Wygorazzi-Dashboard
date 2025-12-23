@@ -7,7 +7,7 @@ from io import BytesIO
 # ---------------------------
 # Page config & CSS
 # ---------------------------
-st.set_page_config(page_title="Spielerstatistik UHC Wygorazzi", layout="wide")
+st.set_page_config(page_title="Spielerstatistik UHC Wygorazzi", layout="centered")
 
 st.markdown(
     """
@@ -200,7 +200,14 @@ def plot_top(df_in, column, title):
         fig = px.bar(top, x="Name", y=column, title=title, text=column)
         fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
     
-    fig.update_layout(yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
+    fig.update_layout(
+        yaxis_title=None, 
+        xaxis_title=None, 
+        title_x=0.02, 
+        margin=dict(t=40,b=80),
+        height=500,
+        xaxis=dict(tickangle=0)
+    )
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
 
@@ -216,7 +223,32 @@ def plot_bully(df_in):
     top = bully.sort_values("Bully-Gewinn %", ascending=False).head(13)
     fig = px.bar(top, x="Name", y="Bully-Gewinn %", title="Bully-Gewinnquote", text="Bully-Gewinn %")
     fig.update_traces(texttemplate='%{text:.1f}%', textposition='inside', showlegend=False)
-    fig.update_layout(yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
+    fig.update_layout(
+        yaxis_title=None, 
+        xaxis_title=None, 
+        title_x=0.02, 
+        margin=dict(t=40,b=80),
+        height=500,
+        xaxis=dict(tickangle=0)
+    )
+    fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
+    return fig
+
+def plot_top_single_match(df_in, column, title):
+    """Spezielle Version für Einzelspiel-Ansicht ohne Division durch gespielte Spiele"""
+    if column not in df_in.columns:
+        df_in[column] = 0
+    top = df_in.groupby("Name")[column].sum().sort_values(ascending=False).head(13).reset_index()
+    fig = px.bar(top, x="Name", y=column, title=title, text=column)
+    fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
+    fig.update_layout(
+        yaxis_title=None, 
+        xaxis_title=None, 
+        title_x=0.02, 
+        margin=dict(t=40,b=80),
+        height=500,
+        xaxis=dict(tickangle=0)
+    )
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
 
@@ -228,7 +260,14 @@ def plot_gespielt(df_in):
     top = gespielt.sort_values("Anzahl Spiele", ascending=False).head(13)
     fig = px.bar(top, x="Name", y="Anzahl Spiele", title="Anzahl gespielte Spiele", text="Anzahl Spiele")
     fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
-    fig.update_layout(yaxis_title=None, xaxis_title=None, title_x=0.02, margin=dict(t=40,b=20))
+    fig.update_layout(
+        yaxis_title=None, 
+        xaxis_title=None, 
+        title_x=0.02, 
+        margin=dict(t=40,b=80),
+        height=500,
+        xaxis=dict(tickangle=0)
+    )
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
 
@@ -294,16 +333,12 @@ if selected_match_id is not None:
 
     st.markdown("---")
     st.markdown("### Spieler-Statistikplots für dieses Match")
-    left_col, right_col = st.columns([2, 1])
-    with left_col:
-        st.plotly_chart(plot_top(df_for_plots, "T", "Tore "), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df_for_plots, "A", "Assists "), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df_for_plots, "Punkte", "Punkte (T+A) "), use_container_width=True, config={'staticPlot': True})
-        
-    with right_col:
-        st.plotly_chart(plot_top(df_for_plots, "PlusMinus", "Plus-Minus"), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df_for_plots, "Strafen", "Strafen "), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_bully(df_for_plots), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df_for_plots, "T", "Tore"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df_for_plots, "A", "Assists"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df_for_plots, "Punkte", "Punkte (T+A)"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top_single_match(df_for_plots, "PlusMinus", "Plus-Minus"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df_for_plots, "Strafen", "Strafen"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_bully(df_for_plots), use_container_width=True, config={'staticPlot': True})
 
 # ---------------------------
 # If "Alle Spiele" selected: show full dashboard (as before) plus wygo season stats fixed
@@ -313,16 +348,13 @@ if selection == "Alle Spiele":
 
     # Plots
     st.markdown("## Gesamt- und Saisonstatistiken")
-    left_col, right_col = st.columns([2, 1])
-    with left_col:
-        st.plotly_chart(plot_top(df, "T", "Tore "), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df, "A", "Assists "), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df, "Punkte", "Punkte (T+A) "), use_container_width=True, config={'staticPlot': True})
-    with right_col:
-        st.plotly_chart(plot_top(df, "PlusMinus", "Plus-Minus geteilt durch Anzahl gespielter Spiele"), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_top(df, "Strafen", "Strafen "), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_bully(df), use_container_width=True, config={'staticPlot': True})
-        st.plotly_chart(plot_gespielt(df), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df, "T", "Tore"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df, "A", "Assists"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df, "Punkte", "Punkte (T+A)"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df, "PlusMinus", "Plus-Minus (Durchschnitt)"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_top(df, "Strafen", "Strafen"), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_bully(df), use_container_width=True, config={'staticPlot': True})
+    st.plotly_chart(plot_gespielt(df), use_container_width=True, config={'staticPlot': True})
 
     st.markdown("---")
     # Wygo aggregate stats per season (fix counts for Sieg/Niederlage/Unentschieden)
