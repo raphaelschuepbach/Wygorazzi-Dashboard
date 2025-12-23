@@ -194,11 +194,11 @@ def plot_top(df_in, column, title):
         top = (plusminus_sum / gespielt_count).fillna(0).sort_values(ascending=False).head(13).reset_index()
         top.columns = ["Name", column]
         fig = px.bar(top, x="Name", y=column, title=title, text=column)
-        fig.update_traces(texttemplate='%{text:.2f}', textposition='inside', showlegend=False)
+        fig.update_traces(texttemplate='%{text:.2f}', textposition='inside', textangle=0, showlegend=False)
     else:
         top = df_in.groupby("Name")[column].sum().sort_values(ascending=False).head(13).reset_index()
         fig = px.bar(top, x="Name", y=column, title=title, text=column)
-        fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
+        fig.update_traces(texttemplate='%{text}', textposition='inside', textangle=0, showlegend=False)
     
     fig.update_layout(
         yaxis_title=None, 
@@ -222,7 +222,7 @@ def plot_bully(df_in):
     bully["Bully-Gewinn %"] = bully["Bully-Gewinn %"].fillna(0)
     top = bully.sort_values("Bully-Gewinn %", ascending=False).head(13)
     fig = px.bar(top, x="Name", y="Bully-Gewinn %", title="Bully-Gewinnquote", text="Bully-Gewinn %")
-    fig.update_traces(texttemplate='%{text:.1f}%', textposition='inside', showlegend=False)
+    fig.update_traces(texttemplate='%{text:.1f}%', textposition='inside', textangle=0, showlegend=False)
     fig.update_layout(
         yaxis_title=None, 
         xaxis_title=None, 
@@ -240,7 +240,7 @@ def plot_top_single_match(df_in, column, title):
         df_in[column] = 0
     top = df_in.groupby("Name")[column].sum().sort_values(ascending=False).head(13).reset_index()
     fig = px.bar(top, x="Name", y=column, title=title, text=column)
-    fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
+    fig.update_traces(texttemplate='%{text}', textposition='inside', textangle=0, showlegend=False)
     fig.update_layout(
         yaxis_title=None, 
         xaxis_title=None, 
@@ -259,7 +259,7 @@ def plot_gespielt(df_in):
     gespielt = df_in[df_in["Gespielt"] == "Ja"].groupby("Name").size().reset_index(name="Anzahl Spiele")
     top = gespielt.sort_values("Anzahl Spiele", ascending=False).head(13)
     fig = px.bar(top, x="Name", y="Anzahl Spiele", title="Anzahl gespielte Spiele", text="Anzahl Spiele")
-    fig.update_traces(texttemplate='%{text:.1f}%', textposition='inside', showlegend=False)
+    fig.update_traces(texttemplate='%{text:.0f}', textposition='inside', textangle=0, showlegend=False)
     fig.update_layout(
         yaxis_title=None, 
         xaxis_title=None, 
