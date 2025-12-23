@@ -204,9 +204,9 @@ def plot_top(df_in, column, title):
         yaxis_title=None, 
         xaxis_title=None, 
         title_x=0.02, 
-        margin=dict(t=40,b=80),
+        margin=dict(t=40,b=100),
         height=500,
-        xaxis=dict(tickangle=0)
+        xaxis=dict(tickangle=-90)
     )
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
@@ -227,9 +227,9 @@ def plot_bully(df_in):
         yaxis_title=None, 
         xaxis_title=None, 
         title_x=0.02, 
-        margin=dict(t=40,b=80),
+        margin=dict(t=40,b=100),
         height=500,
-        xaxis=dict(tickangle=0)
+        xaxis=dict(tickangle=-90)
     )
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
@@ -245,9 +245,9 @@ def plot_top_single_match(df_in, column, title):
         yaxis_title=None, 
         xaxis_title=None, 
         title_x=0.02, 
-        margin=dict(t=40,b=80),
+        margin=dict(t=40,b=100),
         height=500,
-        xaxis=dict(tickangle=0)
+        xaxis=dict(tickangle=-90)
     )
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
@@ -259,14 +259,14 @@ def plot_gespielt(df_in):
     gespielt = df_in[df_in["Gespielt"] == "Ja"].groupby("Name").size().reset_index(name="Anzahl Spiele")
     top = gespielt.sort_values("Anzahl Spiele", ascending=False).head(13)
     fig = px.bar(top, x="Name", y="Anzahl Spiele", title="Anzahl gespielte Spiele", text="Anzahl Spiele")
-    fig.update_traces(texttemplate='%{text}', textposition='inside', showlegend=False)
+    fig.update_traces(texttemplate='%{text:.1f}%', textposition='inside', showlegend=False)
     fig.update_layout(
         yaxis_title=None, 
         xaxis_title=None, 
         title_x=0.02, 
-        margin=dict(t=40,b=80),
+        margin=dict(t=40,b=100),
         height=500,
-        xaxis=dict(tickangle=0)
+        xaxis=dict(tickangle=-90)
     )
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale"])
     return fig
