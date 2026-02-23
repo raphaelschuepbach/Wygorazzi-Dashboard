@@ -48,7 +48,7 @@ st.markdown(
 # ---------------------------
 # Read CSVs
 # ---------------------------
-df = pd.read_csv("Spieler_Statistik_25_26.csv")
+df = pd.read_csv("Spieler_Statistik_25_26.csv", on_bad_lines='skip')
 wygo = pd.read_csv("Statistik_Wygo.csv", sep=",")
 
 # ---------------------------
