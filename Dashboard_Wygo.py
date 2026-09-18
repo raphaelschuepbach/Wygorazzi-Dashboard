@@ -438,7 +438,7 @@ def plot_abschlussquote(df_in):
     # Balken 1 = alle Schüsse (100%), Balken 2 = Torschüsse (100%)
     daten = pd.DataFrame({
         "Balken": ["Schüsse", "Schüsse", "Torschüsse", "Torschüsse"],
-        "Kategorie": ["Neben das Tor", "Aufs Tor", "Gehalten", "Tor"],
+        "Kategorie": ["Neben das Tor oder geblockt", "Aufs Tor", "Gehalten", "Tor"],
         "Anzahl": [neben, sat, gehalten, tore],
         "Bezug": [schuesse, schuesse, sat, sat],
     })
@@ -450,9 +450,9 @@ def plot_abschlussquote(df_in):
     fig = px.bar(daten, x="Balken", y="Anzahl", color="Kategorie",
                  title="Abschlussquote", text="Label",
                  category_orders={"Balken": ["Schüsse", "Torschüsse"],
-                                  "Kategorie": ["Neben das Tor", "Aufs Tor", "Gehalten", "Tor"]},
+                                  "Kategorie": ["Neben das Tor oder geblockt", "Aufs Tor", "Gehalten", "Tor"]},
                  color_discrete_map={
-                     "Neben das Tor": "#E86A6A",
+                     "Neben das Tor oder geblockt": "#E86A6A",
                      "Aufs Tor": "#4C9BE8",
                      "Gehalten": "#7F8FA6",
                      "Tor": "#00FFAA",
