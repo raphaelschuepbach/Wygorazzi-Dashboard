@@ -413,7 +413,7 @@ def plot_torschuss_anteile(df_in, gegentore=None):
 
     # ein grosser Balken = alle Torschuesse gegen Wygorazzi, anteilig aufgeteilt
     fig = px.bar(daten, x="Torschüsse", y="Anzahl", color="Kategorie",
-                 title="Anteil geblockte Torschüsse", text="Label",
+                 title="Anteil von uns geblockten Torschüssen auf unser Tor", text="Label",
                  color_discrete_sequence=["#00FFAA", "#4C9BE8", "#E86A6A"])
     fig.update_traces(textposition='inside', textangle=0)
     fig.update_layout(legend_title_text="")
