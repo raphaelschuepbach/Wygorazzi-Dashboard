@@ -4,7 +4,6 @@ import plotly.express as px
 import numpy as np
 import os
 import re
-from io import BytesIO
 
 # ---------------------------
 # Farbsystem - einzige Quelle fuer CSS und Plots
@@ -41,11 +40,14 @@ LINIEN_FARBEN = {
 # ---------------------------
 # Page config & CSS
 # ---------------------------
-st.set_page_config(page_title="Spielerstatistik UHC Wygorazzi", layout="centered")
+st.set_page_config(page_title="UHC Wygorazzi — Statistik", page_icon="🏑",
+                   layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown(
     f"""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
     :root {{
       --bg: {FARBEN["bg"]};
       --flaeche: {FARBEN["flaeche"]};
@@ -59,6 +61,30 @@ st.markdown(
       --neutral: {FARBEN["neutral"]};
     }}
 
+    /* Streamlit-Eigenwerbung und Werkzeugleiste ausblenden */
+    [data-testid="stHeader"], [data-testid="stToolbar"],
+    [data-testid="stDecoration"], #MainMenu, footer {{display:none !important;}}
+
+    html, body, .stApp, [class*="st-"], button, input, select, textarea {{
+      font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }}
+    .stApp {{background:var(--bg);}}
+
+    /* Inhalt mittig halten, trotz wide layout */
+    .block-container, [data-testid="stMainBlockContainer"] {{
+      max-width:1180px; padding-top:1.6rem; padding-bottom:3rem;
+    }}
+
+    /* Formularfelder an die dunkle Oberflaeche angleichen */
+    [data-baseweb="select"] > div {{
+      background:var(--flaeche) !important; border-color:var(--rand) !important;
+      border-radius:10px !important;
+    }}
+    label[data-testid="stWidgetLabel"] p {{
+      font-size:11px !important; font-weight:600 !important;
+      letter-spacing:0.09em; text-transform:uppercase; color:var(--gedaempft) !important;
+    }}
+
     .big-title {{
       font-size:26px; font-weight:700; color:var(--text);
       letter-spacing:-0.01em; margin:0 0 2px 0;
@@ -69,6 +95,20 @@ st.markdown(
     }}
     .subtle {{color:var(--gedaempft); font-size:13px;}}
     .small-metric {{font-size:12px; color:var(--gedaempft);}}
+
+    /* Diagrammkarten (st.container(border=True)) */
+    [data-testid="stVerticalBlockBorderWrapper"]:has(.chart-titel) {{
+      background:var(--flaeche); border:1px solid var(--rand) !important;
+      border-radius:14px; padding:12px 12px 2px 12px; margin-bottom:12px;
+    }}
+    /* kein negativer Abstand - der schob das Diagramm ueber die Ueberschrift */
+    .chart-titel {{
+      font-size:15px; font-weight:600; color:var(--text) !important;
+      line-height:1.3; margin:0 0 8px 0;
+    }}
+    .chart-leer {{
+      font-size:12px; color:var(--gedaempft); padding:14px 4px 20px 4px;
+    }}
 
     .karte {{
       background:var(--flaeche); border:1px solid var(--rand);
@@ -542,7 +582,8 @@ def _style_plot(fig, tickangle=-90, textfix=True):
         title_x=0.02,
         title_font_size=16,
         font=dict(size=11),
-        margin=dict(t=45, b=90, l=8, r=8),
+        # gedrehte Spielernamen brauchen unten Platz, waagrechte Labels nicht
+        margin=dict(t=45, b=115 if tickangle else 45, l=8, r=8),
         height=430,
         xaxis=dict(tickangle=tickangle, automargin=True),
         yaxis=dict(automargin=True),
@@ -622,9 +663,55 @@ def plot_fangquote(df_in):
     return _style_plot(fig)
 
 
-def _zeige(fig):
-    if fig is not None:
+def _eintrag(fig, hinweis=None):
+    """Plot fuers Kartenraster vorbereiten - der Titel wandert in die Karte."""
+    if fig is None:
+        return (hinweis or "Keine Daten", None, 0)
+    titel = fig.layout.title.text or ""
+    # title_text="" statt title=None: None landet im Browser als "undefined"
+    fig.update_layout(title_text="", margin=dict(t=4, b=fig.layout.margin.b, l=8, r=8))
+    kategorien = len({str(x) for tr in fig.data
+                      for x in (tr.x if tr.x is not None else [])})
+    return (titel, fig, kategorien)
+
+
+def _karte(titel, fig, hoehe=None):
+    with st.container(border=True):
+        st.markdown(f"<div class='chart-titel'>{titel}</div>", unsafe_allow_html=True)
+        if fig is None:
+            st.markdown("<div class='chart-leer'>keine Daten in dieser Auswahl</div>",
+                        unsafe_allow_html=True)
+            return
+        if hoehe:
+            fig.update_layout(height=hoehe)
         st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
+
+
+def raster(*eintraege, schmal_bis=6):
+    """Kompakte Diagramme paarweise nebeneinander, breite ueber die volle Breite.
+
+    Streamlit stapelt die Spalten auf schmalen Bildschirmen von selbst.
+    """
+    wartend = []
+
+    def leeren():
+        while wartend:
+            paar = wartend[:2]
+            del wartend[:2]
+            for spalte, (titel, fig, _) in zip(st.columns(len(paar), gap="medium"), paar):
+                with spalte:
+                    _karte(titel, fig, hoehe=330)
+
+    for eintrag in eintraege:
+        if eintrag is None:
+            continue
+        titel, fig, anzahl = eintrag
+        if fig is None or anzahl <= schmal_bis:
+            wartend.append(eintrag)
+        else:
+            leeren()
+            _karte(titel, fig)
+    leeren()
 
 
 def plot_torschuss_anteile(df_in, gegentore=None):
@@ -703,14 +790,6 @@ def plot_abschlussquote(df_in):
     fig.update_traces(textposition='inside', textangle=0)
     fig.update_layout(legend_title_text="")
     return _style_plot(fig, tickangle=0, textfix=False)
-
-
-def _zeige_oder(fig, hinweis):
-    """Plot anzeigen - oder kurz sagen, warum es ihn hier nicht gibt."""
-    if fig is not None:
-        st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
-    else:
-        st.caption(hinweis)
 
 
 # ---------------------------
@@ -877,59 +956,83 @@ def team_situationen(wygo_zeilen):
 
 
 def tab_pro_spieler(df_in, zeige_gespielt=False):
-    _zeige(plot_top(df_in, "T", "Tore"))
-    _zeige(plot_top(df_in, "A", "Assists"))
-    _zeige(plot_top(df_in, "Punkte", "Punkte (T+A)"))
-    _zeige(plot_top(df_in, "PlusMinus", "Plus-Minus"))
-    _zeige(plot_top(df_in, "Strafen", "Strafen"))
-    _zeige(plot_bully(df_in))
+    eintraege = [
+        _eintrag(plot_top(df_in, "T", "Tore")),
+        _eintrag(plot_top(df_in, "A", "Assists")),
+        _eintrag(plot_top(df_in, "Punkte", "Punkte (T+A)")),
+        _eintrag(plot_top(df_in, "PlusMinus", "Plus-Minus")),
+        _eintrag(plot_top(df_in, "Strafen", "Strafen")),
+        _eintrag(plot_bully(df_in), "Bully-Gewinnquote"),
+    ]
     if hat_erweiterte_daten(df_in):
-        _zeige(plot_summe(df_in, SPALTE_BLOCK, "Geblockte Schüsse"))
-        _zeige(plot_fangquote(df_in))
-        _zeige(plot_summe(df_in, SPALTE_BALLEROBERUNG, "Balleroberungen"))
-        _zeige(plot_summe(df_in, SPALTE_SCHUESSE, "Schüsse pro Spieler"))
-        _zeige(plot_quote(df_in, SPALTE_SAT, SPALTE_SCHUESSE, "Schüsse aufs Tor"))
-        _zeige(plot_quote(df_in, "T", SPALTE_SAT, "Torquote aus den Torschüssen"))
+        eintraege += [
+            _eintrag(plot_summe(df_in, SPALTE_BLOCK, "Geblockte Schüsse"),
+                     "Geblockte Schüsse"),
+            _eintrag(plot_fangquote(df_in), "Torhüter-Fangquote"),
+            _eintrag(plot_summe(df_in, SPALTE_BALLEROBERUNG, "Balleroberungen"),
+                     "Balleroberungen"),
+            _eintrag(plot_summe(df_in, SPALTE_SCHUESSE, "Schüsse pro Spieler"),
+                     "Schüsse pro Spieler"),
+            _eintrag(plot_quote(df_in, SPALTE_SAT, SPALTE_SCHUESSE, "Schüsse aufs Tor"),
+                     "Schüsse aufs Tor"),
+            _eintrag(plot_quote(df_in, "T", SPALTE_SAT, "Torquote aus den Torschüssen"),
+                     "Torquote aus den Torschüssen"),
+        ]
     if hat_spezial_daten(df_in):
-        _zeige_oder(plot_quote(df_in, "Powerplay-Plus", "Powerplay-Gesamt",
-                               "Powerplay-Erfolgsquote"),
-                    "Powerplay-Erfolgsquote: keine Powerplay-Situation erfasst.")
-        _zeige_oder(plot_quote(df_in, "Boxplay-Plus", "Boxplay-Gesamt",
-                               "Boxplay-Erfolgsquote"),
-                    "Boxplay-Erfolgsquote: keine Boxplay-Situation erfasst.")
+        eintraege += [
+            _eintrag(plot_quote(df_in, "Powerplay-Plus", "Powerplay-Gesamt",
+                                "Powerplay-Erfolgsquote"), "Powerplay-Erfolgsquote"),
+            _eintrag(plot_quote(df_in, "Boxplay-Plus", "Boxplay-Gesamt",
+                                "Boxplay-Erfolgsquote"), "Boxplay-Erfolgsquote"),
+        ]
     if zeige_gespielt:
-        _zeige(plot_gespielt(df_in))
+        eintraege.append(_eintrag(plot_gespielt(df_in), "Anzahl gespielte Spiele"))
+    raster(*eintraege)
 
 
 def tab_pro_linie(df_in):
-    _zeige(plot_linie_plusminus(df_in))
-    _zeige(plot_linie_summe(df_in, "Strafen", "Strafen je Linie"))
-    _zeige(plot_linie_quote(df_in, "Bully-Plus", "Bully-Gesamt", "Bully-Gewinnquote je Linie"))
+    eintraege = [
+        _eintrag(plot_linie_plusminus(df_in), "Plus-Minus je Linie"),
+        _eintrag(plot_linie_summe(df_in, "Strafen", "Strafen je Linie"),
+                 "Strafen je Linie"),
+        _eintrag(plot_linie_quote(df_in, "Bully-Plus", "Bully-Gesamt",
+                                  "Bully-Gewinnquote je Linie"), "Bully-Gewinnquote je Linie"),
+    ]
     if hat_erweiterte_daten(df_in):
-        _zeige(plot_linie_summe(df_in, SPALTE_BLOCK, "Geblockte Schüsse je Linie"))
-        _zeige(plot_linie_summe(df_in, SPALTE_BALLEROBERUNG, "Balleroberungen je Linie"))
-        _zeige(plot_linie_summe(df_in, SPALTE_SCHUESSE, "Schüsse je Linie"))
-        _zeige(plot_linie_quote(df_in, SPALTE_SAT, SPALTE_SCHUESSE, "Schüsse aufs Tor je Linie"))
-        _zeige(plot_linie_quote(df_in, "T", SPALTE_SAT, "Torquote aus den Torschüssen je Linie"))
+        eintraege += [
+            _eintrag(plot_linie_summe(df_in, SPALTE_BLOCK, "Geblockte Schüsse je Linie"),
+                     "Geblockte Schüsse je Linie"),
+            _eintrag(plot_linie_summe(df_in, SPALTE_BALLEROBERUNG, "Balleroberungen je Linie"),
+                     "Balleroberungen je Linie"),
+            _eintrag(plot_linie_summe(df_in, SPALTE_SCHUESSE, "Schüsse je Linie"),
+                     "Schüsse je Linie"),
+            _eintrag(plot_linie_quote(df_in, SPALTE_SAT, SPALTE_SCHUESSE,
+                                      "Schüsse aufs Tor je Linie"), "Schüsse aufs Tor je Linie"),
+            _eintrag(plot_linie_quote(df_in, "T", SPALTE_SAT,
+                                      "Torquote aus den Torschüssen je Linie"),
+                     "Torquote aus den Torschüssen je Linie"),
+        ]
     if hat_spezial_daten(df_in):
         # je Situation sind im Powerplay 3 Spieler markiert, im Boxplay 2
-        _zeige_oder(plot_linie_quote(df_in, "Powerplay-Plus", "Powerplay-Gesamt",
-                                     "Powerplay-Erfolgsquote je Linie", teiler=3),
-                    "Powerplay-Erfolgsquote je Linie: keine Powerplay-Situation erfasst.")
-        _zeige_oder(plot_linie_quote(df_in, "Boxplay-Plus", "Boxplay-Gesamt",
-                                     "Boxplay-Erfolgsquote je Linie", teiler=2),
-                    "Boxplay-Erfolgsquote je Linie: keine Boxplay-Situation erfasst.")
+        eintraege += [
+            _eintrag(plot_linie_quote(df_in, "Powerplay-Plus", "Powerplay-Gesamt",
+                                      "Powerplay-Erfolgsquote je Linie", teiler=3),
+                     "Powerplay-Erfolgsquote je Linie"),
+            _eintrag(plot_linie_quote(df_in, "Boxplay-Plus", "Boxplay-Gesamt",
+                                      "Boxplay-Erfolgsquote je Linie", teiler=2),
+                     "Boxplay-Erfolgsquote je Linie"),
+        ]
+    raster(*eintraege)
 
 
 def tab_team(df_in, gegentore=None, situationen=None):
-    _zeige_oder(plot_torschuss_anteile(df_in, gegentore),
-                "Anteil von uns geblockten Torschüssen: keine Block-Daten erfasst.")
-    _zeige_oder(plot_abschlussquote(df_in),
-                "Abschlussquote: keine Schuss-Daten erfasst.")
-    _zeige_oder(plot_spezial_team(situationen, "Powerplay"),
-                "Powerplay-Erfolg: keine Überzahl erfasst.")
-    _zeige_oder(plot_spezial_team(situationen, "Boxplay"),
-                "Boxplay-Erfolg: keine Unterzahl erfasst.")
+    raster(
+        _eintrag(plot_torschuss_anteile(df_in, gegentore),
+                 "Anteil von uns geblockten Torschüssen auf unser Tor"),
+        _eintrag(plot_abschlussquote(df_in), "Abschlussquote"),
+        _eintrag(plot_spezial_team(situationen, "Powerplay"), "Powerplay-Erfolg"),
+        _eintrag(plot_spezial_team(situationen, "Boxplay"), "Boxplay-Erfolg"),
+    )
 
 
 def render_tabs(df_in, gegentore=None, zeige_gespielt=False, team_extra=None, situationen=None):
