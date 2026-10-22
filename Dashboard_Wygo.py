@@ -91,10 +91,12 @@ st.markdown(
     .kpi .wert .neutral {{color:var(--neutral);}}
 
     .chips {{display:flex; flex-wrap:wrap; gap:5px; margin-top:12px;}}
-    .chip {{
-      font-size:11px; font-weight:600; padding:3px 8px; border-radius:6px;
-      border:1px solid transparent; color:{FARBEN["label_innen"]};
+    a.chip {{
+      display:inline-block; font-size:11px; font-weight:600; padding:3px 8px;
+      border-radius:6px; border:1px solid transparent; text-decoration:none;
+      color:{FARBEN["label_innen"]}; cursor:pointer; transition:transform .08s ease;
     }}
+    a.chip:hover {{transform:translateY(-1px); border-color:var(--text);}}
     .chip.sieg {{background:var(--gut);}}
     .chip.remis {{background:var(--neutral);}}
     .chip.nieder {{background:var(--schlecht);}}
@@ -248,6 +250,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ---------------------------
+# Klick auf ein Resultat im Kopfbereich: ?match=<id> waehlt das Spiel aus
+# ---------------------------
+_param = st.query_params.get("match")
+if _param is not None:
+    # einmal merken und die URL wieder aufraeumen, sonst klebt die Auswahl fest
+    st.session_state["_ziel_match"] = _param
+    st.query_params.clear()
+_ziel_match = st.session_state.pop("_ziel_match", None)
+
 col_saison, col_spiel = st.columns([1, 2])
 
 # Default = aktuellste Saison (erster Eintrag der absteigend sortierten Liste)
@@ -270,9 +282,17 @@ for _, r in wygo_saison.iterrows():
     match_lookup[label] = r[MATCH_COL]
     match_options.append(label)
 
+# Kam ein Spiel ueber die URL, dessen Label in die Auswahl schreiben.
+# Direkt in den session_state, weil `index` bei bestehendem Key ignoriert wird.
+_spiel_key = f"spiel_{selected_saison}"
+if _ziel_match is not None:
+    for _label, _mid in match_lookup.items():
+        if str(_mid) == str(_ziel_match) or str(int(float(_mid))) == str(_ziel_match):
+            st.session_state[_spiel_key] = _label
+            break
+
 with col_spiel:
-    selection = st.selectbox("Wähle ein Spiel:", match_options, index=0,
-                             key=f"spiel_{selected_saison}")
+    selection = st.selectbox("Wähle ein Spiel:", match_options, index=0, key=_spiel_key)
 
 
 
@@ -321,7 +341,12 @@ def render_saison_kopf(zeilen, saison):
         else:
             klasse = "nieder"
         titel = f"{r.get('Datum_label', '')} vs {r.get('Gegner', '')}"
-        chips.append(f"<span class='chip {klasse}' title='{titel}'>{t}:{g}</span>")
+        mid = r.get(MATCH_COL)
+        ziel = "" if pd.isna(mid) else str(int(mid))
+        chips.append(
+            f"<a class='chip {klasse}' href='?match={ziel}' target='_self' "
+            f"title='{titel}'>{t}:{g}</a>"
+        )
 
     st.markdown(
         f"<div class='karte'>"
