@@ -1174,6 +1174,16 @@ def _linie_text(zeile):
     return ("Linie " + "+".join(teile)) if teile else ""
 
 
+def _player_kopf(zeile, spiel_namen):
+    """Damit erkennbar bleibt, welches Tor gerade laeuft: Spiel, Zeit, Name, Stand."""
+    spiel = (spiel_namen or {}).get(zeile.get(MATCH_COL), "")
+    teile = [t for t in (spiel, _zeit_text(zeile)) if t]
+    kopf = " · ".join(teile)
+    stand = str(zeile.get("Stand", "") or "").strip()
+    rechts = _torschuetze(zeile) + (f" · {stand}" if stand and stand.lower() != "nan" else "")
+    return f"{kopf} — {rechts}"
+
+
 def _zeit_text(zeile):
     """HZ und Spieluhr - bei Toren aus einer Videoluecke fehlt die Zeit."""
     zeit = str(zeile.get("Zeit") or "").strip()
@@ -1189,7 +1199,7 @@ def _torschuetze(zeile):
 
 
 @st.fragment
-def tab_tore(zeilen):
+def tab_tore(zeilen, spiel_namen=None):
     """Tore des Spiels, Video wird im Dashboard selbst abgespielt.
 
     Als Fragment: ein Klick laedt nur diese Liste neu statt der ganzen Seite.
@@ -1210,11 +1220,8 @@ def tab_tore(zeilen):
     treffer = sortiert[sortiert["Nr"] == gewaehlt] if gewaehlt is not None else sortiert.iloc[0:0]
     if not treffer.empty:
         r = treffer.iloc[0]
-        st.markdown(
-            f"<div class='tor-aktiv'>{_zeit_text(r)} — "
-            f"{_torschuetze(r)}</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div class='tor-aktiv'>{_player_kopf(r, spiel_namen)}</div>",
+                    unsafe_allow_html=True)
         _abspielen(r)
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
@@ -1240,7 +1247,7 @@ def tab_tore(zeilen):
             st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _tor_player(zeilen, schluessel):
+def _tor_player(zeilen, schluessel, spiel_namen=None):
     """Oben den Player fuer das gewaehlte Tor zeigen."""
     gewaehlt = st.session_state.get(schluessel)
     if gewaehlt is None:
@@ -1249,11 +1256,8 @@ def _tor_player(zeilen, schluessel):
     if treffer.empty:
         return
     r = treffer.iloc[0]
-    st.markdown(
-        f"<div class='tor-aktiv'>{_zeit_text(r)} — "
-        f"{_torschuetze(r)} · {r.get('Stand', '')}</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"<div class='tor-aktiv'>{_player_kopf(r, spiel_namen)}</div>",
+                unsafe_allow_html=True)
     _abspielen(r)
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
@@ -1266,7 +1270,7 @@ def tab_tore_saison(zeilen, spiel_namen):
         return
 
     schluessel = "tor_saison"
-    _tor_player(zeilen, schluessel)
+    _tor_player(zeilen, schluessel, spiel_namen)
 
     eigene = zeilen[zeilen["Art"].astype(str).str.strip() == "Tor"]
     gegen = zeilen[zeilen["Art"].astype(str).str.strip() != "Tor"]
@@ -1334,7 +1338,7 @@ def render_tabs(df_in, gegentore=None, zeige_gespielt=False, team_extra=None,
             if saison_modus:
                 tab_tore_saison(tore_saison, spiel_namen or {})
             else:
-                tab_tore(tore_zeilen)
+                tab_tore(tore_zeilen, spiel_namen)
 
 
 # ---------------------------
@@ -1407,9 +1411,14 @@ if selected_match_id is not None:
     if df_for_plots.empty:
         st.info("Für dieses Spiel sind keine Spielerdaten erfasst.")
     else:
+        _namen_spiel = {
+            r[MATCH_COL]: f"{r['Datum_label']} vs {r['Gegner']}"
+            for _, r in wygo[wygo[MATCH_COL] == selected_match_id].iterrows()
+        }
         render_tabs(df_for_plots, gegentore=tore_g,
                     situationen=team_situationen(wygo[wygo[MATCH_COL] == selected_match_id]),
-                    tore_zeilen=tore[tore[MATCH_COL] == selected_match_id])
+                    tore_zeilen=tore[tore[MATCH_COL] == selected_match_id],
+                    spiel_namen=_namen_spiel)
 
 # ---------------------------
 # If "Alle Spiele" selected: show full dashboard (as before) plus wygo season stats fixed
