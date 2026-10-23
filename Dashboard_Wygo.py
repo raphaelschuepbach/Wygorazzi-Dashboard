@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
 import numpy as np
@@ -141,6 +142,47 @@ st.markdown(
     .chip.remis {{background:var(--neutral);}}
     .chip.nieder {{background:var(--schlecht);}}
 
+    /* Torliste */
+    .tor-zeile {{
+      display:flex; align-items:center; gap:12px; padding:10px 12px;
+      background:var(--flaeche); border:1px solid var(--rand);
+      border-left:3px solid var(--gut); border-radius:10px; margin-bottom:8px;
+    }}
+    .tor-zeile.gegentor {{border-left-color:var(--schlecht);}}
+    .tor-nr {{font-size:11px; color:var(--gedaempft); min-width:20px;}}
+    .tor-zeit {{font-size:13px; color:var(--gedaempft); min-width:96px;}}
+    .tor-wer {{font-size:14px; font-weight:600; color:var(--text); flex:1; min-width:0;}}
+    a.tor-link {{
+      font-size:12px; font-weight:600; text-decoration:none; white-space:nowrap;
+      padding:5px 11px; border-radius:8px;
+      background:var(--akzent); color:{FARBEN["label_innen"]};
+    }}
+    a.tor-link:hover {{filter:brightness(1.12);}}
+    .tor-ohne {{font-size:12px; color:var(--gedaempft); white-space:nowrap;}}
+    /* Knopf in der Torzeile schlank halten */
+    .tor-knopf [data-testid="stBaseButton-secondary"] {{
+      padding:6px 10px; min-height:0; border-radius:8px;
+      border:1px solid var(--rand); background:var(--flaeche-hell);
+    }}
+    .tor-gruppe {{
+      font-size:14px; font-weight:700; color:var(--text);
+      margin:16px 0 8px 2px; padding-bottom:5px;
+      border-bottom:1px solid var(--rand);
+    }}
+    .tor-gruppe span {{font-weight:500; color:var(--gedaempft); font-size:12px;}}
+    .tor-spiel {{font-size:13px; color:var(--gedaempft); flex:1; min-width:0;}}
+    .tor-linie {{
+      font-size:12px; color:var(--gedaempft); min-width:58px;
+    }}
+    .tor-stand {{
+      font-size:13px; font-weight:700; color:var(--text);
+      min-width:46px; text-align:right;
+    }}
+    .tor-aktiv {{
+      font-size:12px; font-weight:600; color:var(--akzent);
+      margin:0 0 6px 2px;
+    }}
+
     /* Resultat eines einzelnen Spiels - bleibt auch schmal einzeilig */
     .scoreboard {{display:flex; align-items:center; justify-content:space-between; gap:10px;}}
     .scoreboard .team {{flex:1 1 0; min-width:0;}}
@@ -218,6 +260,15 @@ else:
 
 wygo = pd.read_csv("Statistik_Wygo.csv", sep=",")
 
+# Eine Zeile pro Tor, mit Zeitpunkt und Videolink (optional)
+TORE_DATEI = "Tore.csv"
+if os.path.exists(TORE_DATEI):
+    tore = pd.read_csv(TORE_DATEI)
+    tore.columns = tore.columns.str.strip()
+else:
+    tore = pd.DataFrame(columns=["Match_Id", "Nr", "Halbzeit", "Zeit", "Sekunde",
+                                 "Art", "Spieler", "Datei", "Video"])
+
 # ---------------------------
 # Clean column names (trim spaces) and normalize
 # ---------------------------
@@ -239,6 +290,28 @@ def normalize_match_col(df_obj):
 
 normalize_match_col(df)
 normalize_match_col(wygo)
+normalize_match_col(tore)
+
+
+def _mit_spielstand(tore_df):
+    """Spalte 'Stand' ergaenzen: Spielstand unmittelbar nach diesem Tor."""
+    if tore_df.empty:
+        tore_df["Stand"] = []
+        return tore_df
+    staende = {}
+    for _, gruppe in tore_df.groupby(MATCH_COL, sort=False):
+        wygo_tore = gegner_tore = 0
+        for idx, r in gruppe.sort_values("Nr").iterrows():
+            if str(r.get("Art", "")).strip() == "Tor":
+                wygo_tore += 1
+            else:
+                gegner_tore += 1
+            staende[idx] = f"{wygo_tore}:{gegner_tore}"
+    tore_df["Stand"] = tore_df.index.map(staende)
+    return tore_df
+
+
+tore = _mit_spielstand(tore)
 
 # ---------------------------
 # Datum in wygo parsen (Format im CSV ist Tag.Monat.Jahr)
@@ -905,33 +978,48 @@ def plot_linie_quote(df_in, zaehler, nenner, title, teiler=1):
     return _style_plot(fig, tickangle=0)
 
 
-def plot_linie_plusminus(df_in):
-    """Plus-Minus je Linie.
+def linien_bilanz(tore_zeilen):
+    """Tore und Gegentore je Linie aus Tore.csv zaehlen.
 
-    Linie-Plus/Linie-Minus steht bei allen Spielern einer Linie gleich drin,
-    darum pro Spiel und Linie nur einmal nehmen statt zu summieren.
+    Ein Tor kann mehreren Linien zugeordnet sein ("1+3", gemischte Formation).
+    Es zaehlt dann fuer beide - die Summe ueber die Linien kann deshalb
+    hoeher sein als die Anzahl Tore im Spiel.
     """
-    d = nur_linien(df_in)
-    if d.empty or "Linie-Plus" not in d.columns or MATCH_COL not in d.columns:
-        return None
-    pro_spiel = d.groupby([MATCH_COL, "Linie_Label"])[["Linie-Plus", "Linie-Minus"]].first()
-    agg = pro_spiel.groupby("Linie_Label").sum()
-    agg = agg.reindex([l for l in LINIEN_FARBEN if l in agg.index])
-    if agg.empty:
+    bilanz = {l: {"Tor": 0, "Gegentor": 0} for l in LINIEN}
+    if tore_zeilen is None or tore_zeilen.empty:
+        return bilanz
+    for _, r in tore_zeilen.iterrows():
+        art = "Tor" if str(r.get("Art", "")).strip() == "Tor" else "Gegentor"
+        roh = str(r.get("Linie", "") or "")
+        for teil in roh.replace(";", "+").split("+"):
+            teil = teil.strip().removesuffix(".0")
+            if teil in bilanz:
+                bilanz[teil][art] += 1
+    return bilanz
+
+
+def plot_linie_plusminus(tore_zeilen):
+    """Plus-Minus je Linie, gerechnet aus den einzelnen Toren."""
+    bilanz = linien_bilanz(tore_zeilen)
+    aktiv = {l: w for l, w in bilanz.items() if w["Tor"] or w["Gegentor"]}
+    if not aktiv:
         return None
 
-    agg["PlusMinus"] = agg["Linie-Plus"] - agg["Linie-Minus"]
-    agg = agg.reset_index()
-    agg["Label"] = [
+    daten = pd.DataFrame([
+        {"Linie_Label": f"Linie {l}", "Tore": w["Tor"], "Gegentore": w["Gegentor"],
+         "PlusMinus": w["Tor"] - w["Gegentor"]}
+        for l, w in sorted(aktiv.items())
+    ])
+    daten["Label"] = [
         f'{pm:+.0f}<br>'
-        f'<span style="color:{FARBEN["label_gut"]}">{p:.0f}</span>'
+        f'<span style="color:{FARBEN["label_gut"]}">{t:.0f}</span>'
         f'\u00a0\u00a0'
-        f'<span style="color:{FARBEN["label_schlecht"]}">{m:.0f}</span>'
-        for pm, p, m in zip(agg["PlusMinus"], agg["Linie-Plus"], agg["Linie-Minus"])
+        f'<span style="color:{FARBEN["label_schlecht"]}">{g:.0f}</span>'
+        for pm, t, g in zip(daten["PlusMinus"], daten["Tore"], daten["Gegentore"])
     ]
-    fig = px.bar(agg, x="Linie_Label", y="PlusMinus", title="Plus-Minus je Linie",
+    fig = px.bar(daten, x="Linie_Label", y="PlusMinus", title="Plus-Minus je Linie",
                  text="Label", color="Linie_Label", color_discrete_map=LINIEN_FARBEN)
-    fig.update_traces(textposition='inside', textangle=0)
+    fig.update_traces(textangle=0)
     fig.update_layout(showlegend=False)
     return _style_plot(fig, tickangle=0)
 
@@ -990,9 +1078,9 @@ def tab_pro_spieler(df_in, zeige_gespielt=False):
     raster(*eintraege)
 
 
-def tab_pro_linie(df_in):
+def tab_pro_linie(df_in, tore_zeilen=None):
     eintraege = [
-        _eintrag(plot_linie_plusminus(df_in), "Plus-Minus je Linie"),
+        _eintrag(plot_linie_plusminus(tore_zeilen), "Plus-Minus je Linie"),
         _eintrag(plot_linie_summe(df_in, "Strafen", "Strafen je Linie"),
                  "Strafen je Linie"),
         _eintrag(plot_linie_quote(df_in, "Bully-Plus", "Bully-Gesamt",
@@ -1035,8 +1123,204 @@ def tab_team(df_in, gegentore=None, situationen=None):
     )
 
 
-def render_tabs(df_in, gegentore=None, zeige_gespielt=False, team_extra=None, situationen=None):
-    t_spieler, t_team, t_linie = st.tabs(["Pro Spieler", "Team", "Pro Linie"])
+VIDEO_ORDNER = "tore_26-27"
+
+
+def _clip_pfad(zeile):
+    """Pfad zum Clip im Projekt - der schnellste Weg, weil die App ihn selbst ausliefert."""
+    d = str(zeile.get("Datei") or "").strip()
+    if not d or d.lower() == "nan":
+        return ""
+    pfad = os.path.join(VIDEO_ORDNER, d)
+    return pfad if os.path.isfile(pfad) else ""
+
+
+def _video_url(zeile):
+    """Eingebettete Adresse - nur noch Rueckfall, wenn die Datei fehlt."""
+    v = str(zeile.get("Video") or "").strip()
+    return v if v and v.lower() != "nan" else ""
+
+
+def _hat_video(zeile):
+    return bool(_clip_pfad(zeile) or _video_url(zeile))
+
+
+def _abspielen(zeile):
+    """Lokale Datei bevorzugen, sonst einbetten."""
+    pfad = _clip_pfad(zeile)
+    if pfad:
+        st.video(pfad)
+        return
+    url = _video_url(zeile)
+    if url:
+        components.iframe(url, height=430, scrolling=False)
+    else:
+        st.caption("Für dieses Tor ist kein Video hinterlegt.")
+
+
+def _tor_waehlen(schluessel, nr):
+    """Callback: laeuft vor dem Neuzeichnen, der Player sieht die Auswahl sofort."""
+    st.session_state[schluessel] = nr
+
+
+def _linie_text(zeile):
+    """Linie, die beim Tor auf dem Feld stand - nur wo erfasst."""
+    roh = str(zeile.get("Linie") or "").strip()
+    if not roh or roh.lower() == "nan":
+        return ""
+    # kann mehrere Linien enthalten, z.B. "1+3" bei gemischter Formation
+    teile = [t.strip().removesuffix(".0") for t in roh.replace(";", "+").split("+")]
+    teile = [t for t in teile if t]
+    return ("Linie " + "+".join(teile)) if teile else ""
+
+
+def _zeit_text(zeile):
+    """HZ und Spieluhr - bei Toren aus einer Videoluecke fehlt die Zeit."""
+    zeit = str(zeile.get("Zeit") or "").strip()
+    if not zeit or zeit.lower() == "nan":
+        zeit = "—"
+    return f"HZ{int(zeile['Halbzeit'])} · {zeit}"
+
+
+def _torschuetze(zeile):
+    """Name des Schuetzen - bei Gegentoren ist das Feld leer bzw. NaN."""
+    wer = str(zeile.get("Spieler") or "").strip()
+    return "Gegentor" if not wer or wer.lower() == "nan" else wer
+
+
+@st.fragment
+def tab_tore(zeilen):
+    """Tore des Spiels, Video wird im Dashboard selbst abgespielt.
+
+    Als Fragment: ein Klick laedt nur diese Liste neu statt der ganzen Seite.
+    """
+    if zeilen.empty:
+        st.caption("Für dieses Spiel sind keine Tore erfasst.")
+        return
+
+    # nach Nr: die ist chronologisch vergeben und auch ohne Zeit vorhanden
+    sortiert = zeilen.sort_values("Nr")
+    anz_tor = int((sortiert["Art"].astype(str).str.strip() == "Tor").sum())
+    st.caption(f"{anz_tor} Tore, {len(sortiert) - anz_tor} Gegentore")
+
+    schluessel = f"tor_{int(sortiert.iloc[0]['Match_Id'])}"
+    gewaehlt = st.session_state.get(schluessel)
+
+    # Player oben, damit man nach dem Klick nicht scrollen muss
+    treffer = sortiert[sortiert["Nr"] == gewaehlt] if gewaehlt is not None else sortiert.iloc[0:0]
+    if not treffer.empty:
+        r = treffer.iloc[0]
+        st.markdown(
+            f"<div class='tor-aktiv'>{_zeit_text(r)} — "
+            f"{_torschuetze(r)}</div>",
+            unsafe_allow_html=True,
+        )
+        _abspielen(r)
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    for _, r in sortiert.iterrows():
+        nr = int(r["Nr"])
+        ist_tor = str(r.get("Art", "")).strip() == "Tor"
+        links, rechts = st.columns([6, 1], vertical_alignment="center")
+        with links:
+            st.markdown(
+                f"<div class='tor-zeile {'tor' if ist_tor else 'gegentor'}'>"
+                f"<span class='tor-nr'>{nr}</span>"
+                f"<span class='tor-zeit'>{_zeit_text(r)}</span>"
+                f"<span class='tor-wer'>{_torschuetze(r)}</span></div>",
+                unsafe_allow_html=True,
+            )
+        with rechts:
+            st.markdown("<div class='tor-knopf'>", unsafe_allow_html=True)
+            if _hat_video(r):
+                st.button("▶", key=f"{schluessel}_{nr}", help="Video hier abspielen",
+                          on_click=_tor_waehlen, args=(schluessel, nr))
+            else:
+                st.markdown("<span class='tor-ohne'>—</span>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _tor_player(zeilen, schluessel):
+    """Oben den Player fuer das gewaehlte Tor zeigen."""
+    gewaehlt = st.session_state.get(schluessel)
+    if gewaehlt is None:
+        return
+    treffer = zeilen[zeilen["Nr"].astype(str) + "_" + zeilen[MATCH_COL].astype(str) == gewaehlt]
+    if treffer.empty:
+        return
+    r = treffer.iloc[0]
+    st.markdown(
+        f"<div class='tor-aktiv'>{_zeit_text(r)} — "
+        f"{_torschuetze(r)} · {r.get('Stand', '')}</div>",
+        unsafe_allow_html=True,
+    )
+    _abspielen(r)
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+
+@st.fragment
+def tab_tore_saison(zeilen, spiel_namen):
+    """Alle Tore der Saison, gruppiert nach Spieler, innerhalb nach Spiel sortiert."""
+    if zeilen.empty:
+        st.caption("Für diese Saison sind keine Tore erfasst.")
+        return
+
+    schluessel = "tor_saison"
+    _tor_player(zeilen, schluessel)
+
+    eigene = zeilen[zeilen["Art"].astype(str).str.strip() == "Tor"]
+    gegen = zeilen[zeilen["Art"].astype(str).str.strip() != "Tor"]
+    reihenfolge = eigene.groupby("Spieler").size().sort_values(ascending=False).index.tolist()
+
+    # Spieler nach Toranzahl, Gegentore als eigene Gruppe zuunterst
+    gruppen = [(n, eigene[eigene["Spieler"] == n]) for n in reihenfolge]
+    if not gegen.empty:
+        gruppen.append(("Gegentore", gegen))
+
+    for name, g in gruppen:
+        if name == "Gegentore":
+            zusatz = str(len(g))          # "Gegentore 2" statt "Gegentore 2 Gegentore"
+        else:
+            zusatz = f"{len(g)} {'Tor' if len(g) == 1 else 'Tore'}"
+        st.markdown(f"<div class='tor-gruppe'>{name} <span>{zusatz}</span></div>",
+                    unsafe_allow_html=True)
+        # Gegentore nach der Linie ordnen, die auf dem Feld stand
+        sortier = (["Linie", MATCH_COL, "Nr"] if name == "Gegentore"
+                   and "Linie" in g.columns else [MATCH_COL, "Nr"])
+        for _, r in g.sort_values(sortier).iterrows():
+            mid = r[MATCH_COL]
+            kennung = f"{int(r['Nr'])}_{mid}"
+            ist_tor = str(r.get("Art", "")).strip() == "Tor"
+            links, rechts = st.columns([6, 1], vertical_alignment="center")
+            with links:
+                st.markdown(
+                    f"<div class='tor-zeile {'tor' if ist_tor else 'gegentor'}'>"
+                    f"<span class='tor-spiel'>{spiel_namen.get(mid, f'Spiel {mid}')}</span>"
+                    f"<span class='tor-zeit'>{_zeit_text(r)}</span>"
+                    f"<span class='tor-linie'>{_linie_text(r)}</span>"
+                    f"<span class='tor-stand'>{r.get('Stand', '')}</span></div>",
+                    unsafe_allow_html=True,
+                )
+            with rechts:
+                st.markdown("<div class='tor-knopf'>", unsafe_allow_html=True)
+                if _hat_video(r):
+                    st.button("▶", key=f"saison_{kennung}", help="Video hier abspielen",
+                              on_click=_tor_waehlen, args=(schluessel, kennung))
+                else:
+                    st.markdown("<span class='tor-ohne'>—</span>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_tabs(df_in, gegentore=None, zeige_gespielt=False, team_extra=None,
+                situationen=None, tore_zeilen=None, tore_saison=None, spiel_namen=None):
+    saison_modus = tore_saison is not None
+    quelle = tore_saison if saison_modus else tore_zeilen   # auch fuer die Linienbilanz
+    zeige_tore = quelle is not None and not quelle.empty
+    if zeige_tore:
+        t_spieler, t_team, t_linie, t_tore = st.tabs(
+            ["Pro Spieler", "Team", "Pro Linie", "Tore"])
+    else:
+        t_spieler, t_team, t_linie = st.tabs(["Pro Spieler", "Team", "Pro Linie"])
     with t_spieler:
         tab_pro_spieler(df_in, zeige_gespielt=zeige_gespielt)
     with t_team:
@@ -1044,7 +1328,13 @@ def render_tabs(df_in, gegentore=None, zeige_gespielt=False, team_extra=None, si
         if team_extra is not None:
             team_extra()
     with t_linie:
-        tab_pro_linie(df_in)
+        tab_pro_linie(df_in, quelle)
+    if zeige_tore:
+        with t_tore:
+            if saison_modus:
+                tab_tore_saison(tore_saison, spiel_namen or {})
+            else:
+                tab_tore(tore_zeilen)
 
 
 # ---------------------------
@@ -1118,7 +1408,8 @@ if selected_match_id is not None:
         st.info("Für dieses Spiel sind keine Spielerdaten erfasst.")
     else:
         render_tabs(df_for_plots, gegentore=tore_g,
-                    situationen=team_situationen(wygo[wygo[MATCH_COL] == selected_match_id]))
+                    situationen=team_situationen(wygo[wygo[MATCH_COL] == selected_match_id]),
+                    tore_zeilen=tore[tore[MATCH_COL] == selected_match_id])
 
 # ---------------------------
 # If "Alle Spiele" selected: show full dashboard (as before) plus wygo season stats fixed
@@ -1191,10 +1482,16 @@ if selection == "Alle Spiele":
             wygo_saison[wygo_saison[MATCH_COL].isin(_ids_mit_daten)]["Tore Gegner"],
             errors="coerce",
         ).fillna(0).sum()
+        _spiel_namen = {
+            r[MATCH_COL]: f"{r['Datum_label']} vs {r['Gegner']}"
+            for _, r in wygo_saison.iterrows()
+        }
         render_tabs(df_saison, gegentore=_gegentore, zeige_gespielt=True,
                     team_extra=zeige_wygo_kennzahlen,
                     situationen=team_situationen(
-                        wygo_saison[wygo_saison[MATCH_COL].isin(_ids_mit_daten)]))
+                        wygo_saison[wygo_saison[MATCH_COL].isin(_ids_mit_daten)]),
+                    tore_saison=tore[tore[MATCH_COL].isin(wygo_saison[MATCH_COL])],
+                    spiel_namen=_spiel_namen)
 
 
     
