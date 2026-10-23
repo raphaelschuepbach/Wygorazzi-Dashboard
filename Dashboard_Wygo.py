@@ -178,10 +178,6 @@ st.markdown(
       font-size:13px; font-weight:700; color:var(--text);
       min-width:46px; text-align:right;
     }}
-    .tor-aktiv {{
-      font-size:12px; font-weight:600; color:var(--akzent);
-      margin:0 0 6px 2px;
-    }}
 
     /* Resultat eines einzelnen Spiels - bleibt auch schmal einzeilig */
     .scoreboard {{display:flex; align-items:center; justify-content:space-between; gap:10px;}}
@@ -1159,8 +1155,11 @@ def _abspielen(zeile):
 
 
 def _tor_waehlen(schluessel, nr):
-    """Callback: laeuft vor dem Neuzeichnen, der Player sieht die Auswahl sofort."""
-    st.session_state[schluessel] = nr
+    """Callback: laeuft vor dem Neuzeichnen, der Player sieht die Auswahl sofort.
+
+    Nochmal auf dasselbe Tor klicken schliesst das Video wieder.
+    """
+    st.session_state[schluessel] = None if st.session_state.get(schluessel) == nr else nr
 
 
 def _linie_text(zeile):
@@ -1172,16 +1171,6 @@ def _linie_text(zeile):
     teile = [t.strip().removesuffix(".0") for t in roh.replace(";", "+").split("+")]
     teile = [t for t in teile if t]
     return ("Linie " + "+".join(teile)) if teile else ""
-
-
-def _player_kopf(zeile, spiel_namen):
-    """Damit erkennbar bleibt, welches Tor gerade laeuft: Spiel, Zeit, Name, Stand."""
-    spiel = (spiel_namen or {}).get(zeile.get(MATCH_COL), "")
-    teile = [t for t in (spiel, _zeit_text(zeile)) if t]
-    kopf = " · ".join(teile)
-    stand = str(zeile.get("Stand", "") or "").strip()
-    rechts = _torschuetze(zeile) + (f" · {stand}" if stand and stand.lower() != "nan" else "")
-    return f"{kopf} — {rechts}"
 
 
 def _zeit_text(zeile):
@@ -1199,8 +1188,9 @@ def _torschuetze(zeile):
 
 
 @st.fragment
+@st.fragment
 def tab_tore(zeilen, spiel_namen=None):
-    """Tore des Spiels, Video wird im Dashboard selbst abgespielt.
+    """Tore des Spiels. Das Video erscheint direkt unter dem angeklickten Tor.
 
     Als Fragment: ein Klick laedt nur diese Liste neu statt der ganzen Seite.
     """
@@ -1215,15 +1205,6 @@ def tab_tore(zeilen, spiel_namen=None):
 
     schluessel = f"tor_{int(sortiert.iloc[0]['Match_Id'])}"
     gewaehlt = st.session_state.get(schluessel)
-
-    # Player oben, damit man nach dem Klick nicht scrollen muss
-    treffer = sortiert[sortiert["Nr"] == gewaehlt] if gewaehlt is not None else sortiert.iloc[0:0]
-    if not treffer.empty:
-        r = treffer.iloc[0]
-        st.markdown(f"<div class='tor-aktiv'>{_player_kopf(r, spiel_namen)}</div>",
-                    unsafe_allow_html=True)
-        _abspielen(r)
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
     for _, r in sortiert.iterrows():
         nr = int(r["Nr"])
@@ -1240,37 +1221,31 @@ def tab_tore(zeilen, spiel_namen=None):
         with rechts:
             st.markdown("<div class='tor-knopf'>", unsafe_allow_html=True)
             if _hat_video(r):
-                st.button("▶", key=f"{schluessel}_{nr}", help="Video hier abspielen",
+                st.button("▼" if gewaehlt == nr else "▶", key=f"{schluessel}_{nr}",
+                          help="Video hier abspielen",
                           on_click=_tor_waehlen, args=(schluessel, nr))
             else:
                 st.markdown("<span class='tor-ohne'>—</span>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-
-def _tor_player(zeilen, schluessel, spiel_namen=None):
-    """Oben den Player fuer das gewaehlte Tor zeigen."""
-    gewaehlt = st.session_state.get(schluessel)
-    if gewaehlt is None:
-        return
-    treffer = zeilen[zeilen["Nr"].astype(str) + "_" + zeilen[MATCH_COL].astype(str) == gewaehlt]
-    if treffer.empty:
-        return
-    r = treffer.iloc[0]
-    st.markdown(f"<div class='tor-aktiv'>{_player_kopf(r, spiel_namen)}</div>",
-                unsafe_allow_html=True)
-    _abspielen(r)
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if gewaehlt == nr:
+            _abspielen(r)
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
 
 @st.fragment
 def tab_tore_saison(zeilen, spiel_namen):
-    """Alle Tore der Saison, gruppiert nach Spieler, innerhalb nach Spiel sortiert."""
+    """Alle Tore der Saison, gruppiert nach Spieler, innerhalb nach Spiel sortiert.
+
+    Das Video erscheint direkt unter dem angeklickten Tor - auf dem Handy
+    muesste man sonst nach jedem Klick wieder hochscrollen.
+    """
     if zeilen.empty:
         st.caption("Für diese Saison sind keine Tore erfasst.")
         return
 
     schluessel = "tor_saison"
-    _tor_player(zeilen, schluessel, spiel_namen)
+    gewaehlt = st.session_state.get(schluessel)
 
     eigene = zeilen[zeilen["Art"].astype(str).str.strip() == "Tor"]
     gegen = zeilen[zeilen["Art"].astype(str).str.strip() != "Tor"]
@@ -1288,6 +1263,7 @@ def tab_tore_saison(zeilen, spiel_namen):
             zusatz = f"{len(g)} {'Tor' if len(g) == 1 else 'Tore'}"
         st.markdown(f"<div class='tor-gruppe'>{name} <span>{zusatz}</span></div>",
                     unsafe_allow_html=True)
+
         # Gegentore nach der Linie ordnen, die auf dem Feld stand
         sortier = (["Linie", MATCH_COL, "Nr"] if name == "Gegentore"
                    and "Linie" in g.columns else [MATCH_COL, "Nr"])
@@ -1308,11 +1284,16 @@ def tab_tore_saison(zeilen, spiel_namen):
             with rechts:
                 st.markdown("<div class='tor-knopf'>", unsafe_allow_html=True)
                 if _hat_video(r):
-                    st.button("▶", key=f"saison_{kennung}", help="Video hier abspielen",
+                    st.button("▼" if gewaehlt == kennung else "▶",
+                              key=f"saison_{kennung}", help="Video hier abspielen",
                               on_click=_tor_waehlen, args=(schluessel, kennung))
                 else:
                     st.markdown("<span class='tor-ohne'>—</span>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
+
+            if gewaehlt == kennung:
+                _abspielen(r)
+                st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
 
 def render_tabs(df_in, gegentore=None, zeige_gespielt=False, team_extra=None,
