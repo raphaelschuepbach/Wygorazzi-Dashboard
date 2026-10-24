@@ -177,6 +177,10 @@ st.markdown(
       background:var(--bg); border-radius:8px 8px 0 0;
     }}
     .tor-gruppe span {{font-weight:500; color:var(--gedaempft); font-size:12px;}}
+    /* sticky bricht, sobald ein Vorfahr den Ueberlauf abschneidet */
+    [data-testid="stVerticalBlock"], [data-testid="stElementContainer"],
+    [data-testid="stHorizontalBlock"], [data-testid="stColumn"],
+    [data-baseweb="tab-panel"], .stTabs, .stTabs > div {{overflow:visible !important;}}
     .tor-spiel {{
       font-size:13px; color:var(--gedaempft); flex:1 1 0; min-width:0;
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -230,6 +234,26 @@ st.markdown(
         .kpi .wert {{font-size:17px;}}
         .scoreboard .score-value {{font-size:22px;}}
         .scoreboard .team-name {{font-size:13px;}}
+        /* Torzeile und Abspielknopf nebeneinander halten - Streamlit wuerde
+           die Spalten sonst untereinander stapeln. Nur hier, nicht bei den
+           Diagrammen und Linienkarten, die sollen stapeln. */
+        [data-testid="stHorizontalBlock"]:has(.tor-zeile) {{
+          flex-wrap:nowrap !important; gap:6px !important;
+        }}
+        [data-testid="stHorizontalBlock"]:has(.tor-zeile) [data-testid="stColumn"] {{
+          min-width:0 !important; width:auto !important;
+        }}
+        [data-testid="stHorizontalBlock"]:has(.tor-zeile)
+          [data-testid="stColumn"]:first-child {{flex:1 1 auto !important;}}
+        [data-testid="stHorizontalBlock"]:has(.tor-zeile)
+          [data-testid="stColumn"]:last-child {{flex:0 0 auto !important;}}
+
+        /* innerhalb der Zeile enger, damit alles nebeneinander Platz hat */
+        .tor-zeile {{gap:8px; padding:9px 10px;}}
+        .tor-zeit {{min-width:0; font-size:12px; white-space:nowrap;}}
+        .tor-linie {{min-width:0; font-size:11px; white-space:nowrap;}}
+        .tor-stand {{min-width:0; font-size:12px;}}
+
         /* auf schmalen Bildschirmen weniger Abstand, damit alle Reiter passen */
         .stTabs [data-baseweb="tab-list"] {{gap:16px;}}
         .stTabs [data-baseweb="tab"] {{font-size:13px;}}
@@ -1271,8 +1295,13 @@ def tab_tore_saison(zeilen, spiel_namen):
             zusatz = str(len(g))          # "Gegentore 2" statt "Gegentore 2 Gegentore"
         else:
             zusatz = f"{len(g)} {'Tor' if len(g) == 1 else 'Tore'}"
-        st.markdown(f"<div class='tor-gruppe'>{name} <span>{zusatz}</span></div>",
-                    unsafe_allow_html=True)
+
+        # Ueberschrift und ihre Zeilen in einen gemeinsamen Container: nur so hat
+        # position:sticky ein Elternelement, in dem es wandern kann.
+        gruppe_box = st.container()
+        gruppe_box.markdown(
+            f"<div class='tor-gruppe'>{name} <span>{zusatz}</span></div>",
+            unsafe_allow_html=True)
 
         # Gegentore nach der Linie ordnen, die auf dem Feld stand
         sortier = (["Linie", MATCH_COL, "Nr"] if name == "Gegentore"
@@ -1281,7 +1310,7 @@ def tab_tore_saison(zeilen, spiel_namen):
             mid = r[MATCH_COL]
             kennung = f"{int(r['Nr'])}_{mid}"
             ist_tor = str(r.get("Art", "")).strip() == "Tor"
-            links, rechts = st.columns([6, 1], vertical_alignment="center")
+            links, rechts = gruppe_box.columns([6, 1], vertical_alignment="center")
             with links:
                 st.markdown(
                     f"<div class='tor-zeile {'tor' if ist_tor else 'gegentor'}'>"
@@ -1302,8 +1331,9 @@ def tab_tore_saison(zeilen, spiel_namen):
                 st.markdown("</div>", unsafe_allow_html=True)
 
             if gewaehlt == kennung:
-                _abspielen(r)
-                st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+                with gruppe_box:
+                    _abspielen(r)
+                    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
 
 def render_tabs(df_in, gegentore=None, zeige_gespielt=False, team_extra=None,
