@@ -151,7 +151,11 @@ st.markdown(
     .tor-zeile.gegentor {{border-left-color:var(--schlecht);}}
     .tor-nr {{font-size:11px; color:var(--gedaempft); min-width:20px;}}
     .tor-zeit {{font-size:13px; color:var(--gedaempft); min-width:96px;}}
-    .tor-wer {{font-size:14px; font-weight:600; color:var(--text); flex:1; min-width:0;}}
+    .tor-wer {{
+      font-size:14px; font-weight:600; color:var(--text);
+      flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap;
+    }}
     a.tor-link {{
       font-size:12px; font-weight:600; text-decoration:none; white-space:nowrap;
       padding:5px 11px; border-radius:8px;
@@ -166,11 +170,17 @@ st.markdown(
     }}
     .tor-gruppe {{
       font-size:14px; font-weight:700; color:var(--text);
-      margin:16px 0 8px 2px; padding-bottom:5px;
+      margin:16px 0 8px 0; padding:8px 10px;
       border-bottom:1px solid var(--rand);
+      /* bleibt beim Scrollen oben stehen, bis die naechste Gruppe kommt */
+      position:sticky; top:0; z-index:5;
+      background:var(--bg); border-radius:8px 8px 0 0;
     }}
     .tor-gruppe span {{font-weight:500; color:var(--gedaempft); font-size:12px;}}
-    .tor-spiel {{font-size:13px; color:var(--gedaempft); flex:1; min-width:0;}}
+    .tor-spiel {{
+      font-size:13px; color:var(--gedaempft); flex:1 1 0; min-width:0;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }}
     .tor-linie {{
       font-size:12px; color:var(--gedaempft); min-width:58px;
     }}
