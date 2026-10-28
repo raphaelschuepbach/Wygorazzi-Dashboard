@@ -576,7 +576,7 @@ def plot_top(df_in, column, title):
     if column not in df_in.columns:
         df_in[column] = 0
     
-    top = df_in.groupby("Name")[column].sum().sort_values(ascending=False).head(13).reset_index()
+    top = df_in.groupby("Name")[column].sum().sort_values(ascending=False).reset_index()
     fig = px.bar(top, x="Name", y=column, title=title, text=column)
     fig.update_traces(texttemplate='%{text:.0f}', textposition='inside', textangle=0, showlegend=False)
 
@@ -591,7 +591,7 @@ def plot_bully(df_in):
     denom = (bully["Bully-Plus"] + bully["Bully-Minus"]).replace({0: np.nan})
     bully["Bully-Gewinn %"] = 100 * bully["Bully-Plus"] / denom
     bully["Bully-Gewinn %"] = bully["Bully-Gewinn %"].fillna(0)
-    top = bully.sort_values("Bully-Gewinn %", ascending=False).head(13).copy()
+    top = bully.sort_values("Bully-Gewinn %", ascending=False).copy()
     # unter der Quote die gewonnenen (grün) und verlorenen (rot) Bullys nebeneinander
     top["Label"] = [
         _quote_label(q, g, v)
@@ -606,7 +606,7 @@ def plot_gespielt(df_in):
         df_in["Gespielt"] = "Nein"
     # Zähle nur "Ja" Werte pro Spieler
     gespielt = df_in[df_in["Gespielt"] == "Ja"].groupby("Name").size().reset_index(name="Anzahl Spiele")
-    top = gespielt.sort_values("Anzahl Spiele", ascending=False).head(13)
+    top = gespielt.sort_values("Anzahl Spiele", ascending=False)
     fig = px.bar(top, x="Name", y="Anzahl Spiele", title="Anzahl gespielte Spiele", text="Anzahl Spiele")
     fig.update_traces(texttemplate='%{text:.0f}', textposition='inside', textangle=0, showlegend=False)
     return _style_plot(fig)
@@ -719,7 +719,7 @@ def plot_summe(df_in, column, title, ohne_torhueter=True):
     if column not in d.columns or d.empty:
         return None
     # auch bei lauter Nullen anzeigen, sonst fehlt der Plot in einzelnen Spielen
-    top = d.groupby("Name")[column].sum().sort_values(ascending=False).head(13).reset_index()
+    top = d.groupby("Name")[column].sum().sort_values(ascending=False).reset_index()
     fig = px.bar(top, x="Name", y=column, title=title, text=column)
     fig.update_traces(texttemplate='%{text:.0f}', textposition='inside', textangle=0, showlegend=False)
     return _style_plot(fig)
@@ -739,7 +739,7 @@ def plot_quote(df_in, zaehler, nenner, title, ohne_torhueter=True):
         return None
     agg["Quote"] = 100 * agg[zaehler] / agg[nenner]
     # nach der Quote sortiert, im Balken steht Prozent, Treffer und Rest
-    top = agg.sort_values("Quote", ascending=False).head(13).reset_index()
+    top = agg.sort_values("Quote", ascending=False).reset_index()
     top["Label"] = [_quote_label(q, z, n - z) for q, z, n in
                     zip(top["Quote"], top[zaehler], top[nenner])]
     fig = px.bar(top, x="Name", y="Quote", title=title, text="Label")

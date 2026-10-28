@@ -1,0 +1,8 @@
+# ByteTrack fuer Hallenaufnahmen: lange Spuren, auch wenn die Erkennung kurz aussetzt
+tracker_type: bytetrack
+track_high_thresh: 0.40     # sichere Erkennungen fuehren die Spur
+track_low_thresh: 0.08      # schwache werden zur Ueberbrueckung noch zugeordnet
+new_track_thresh: 0.55      # neue Nummer nur bei klarer Erkennung
+track_buffer: 90            # 3 s bei 30 Bildern/s ueberdauern Verdeckungen
+match_thresh: 0.85
+fuse_score: true
