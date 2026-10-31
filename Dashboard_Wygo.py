@@ -1654,12 +1654,12 @@ def plot_spielstand(tore_zeilen, spiele=None, titel="Spielverlauf"):
                       insidetextfont=dict(color=FARBEN["label_innen"], size=12))
     fig.update_layout(legend_title_text="", uniformtext_minsize=9,
                       uniformtext_mode="hide")
-    fig = _style_plot(fig, tickangle=0, textfix=False)
-    # Legende nach oben neben den Titel - unten verdeckt sie die Spielnamen.
-    # Unten etwas mehr Luft, die Beschriftung ist zweizeilig (Name, Resultat).
+    # Senkrechte Beschriftung: im Hochformat auf dem Handy waere eine
+    # waagrechte nicht mehr lesbar.
+    fig = _style_plot(fig, textfix=False)
+    # Legende nach oben neben den Titel - unten verdeckt sie die Spielnamen
     fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.0,
-                                  xanchor="right", x=1),
-                      margin=dict(t=45, b=75, l=8, r=8))
+                                  xanchor="right", x=1))
     hoechste = float(daten.groupby("Spiel")["Minuten"].sum().max())
     fig.update_yaxes(dtick=5, range=[0, max(SPIEL_MINUTEN, hoechste)],
                      title_text="Minuten")
@@ -1815,11 +1815,10 @@ def plot_torschuesse(df_in, spiele, titel="Torschussquote"):
                                      "Gegner": FARBEN["schlecht"]})
     fig.update_traces(textposition="outside", textangle=0, cliponaxis=False)
     fig.update_layout(legend_title_text="")
-    fig = _style_plot(fig, tickangle=0, textfix=False)
+    fig = _style_plot(fig, textfix=False)
     # Legende nach oben neben den Titel - unten verdeckt sie die Spielnamen
     fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.0,
-                                  xanchor="right", x=1),
-                      margin=dict(t=45, b=60, l=8, r=8))
+                                  xanchor="right", x=1))
     hoch = float(lang["Torschüsse"].max())
     fig.update_yaxes(range=[0, hoch * 1.4], title_text="Torschüsse")
     return fig
@@ -1950,8 +1949,10 @@ def tab_team(df_in, gegentore=None, situationen=None, spiele=None, tore_zeilen=N
     # breit=True fuer alles, was wenige Kategorien hat, aber trotzdem die
     # volle Breite braucht - sonst stauchte raster() die Karte auf 330 Pixel
     # und ueberschriebe die eigene Hoehe des Plots.
+    # plot_spielverlauf (Tordifferenz-Kurve) ist ausgehaengt (Wunsch vom
+    # 2026-10-31); die Funktion bleibt stehen, zum Wiederanzeigen hier
+    # (plot_spielverlauf(tore_zeilen, spiele), False) einfuegen.
     for fig, breit in ((plot_spielstand(tore_zeilen, spiele), True),
-                       (plot_spielverlauf(tore_zeilen, spiele), False),
                        (plot_reaktion(paar_zeilen), True),
                        (plot_torschuesse(df_in, spiele), True)):
         if fig is not None:
