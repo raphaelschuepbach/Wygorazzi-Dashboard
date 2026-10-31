@@ -95,21 +95,21 @@ st.markdown(
       font-size:12px; font-weight:600; letter-spacing:0.14em;
       text-transform:uppercase; color:var(--akzent); margin-bottom:2px;
     }}
-    .subtle {{color:var(--gedaempft); font-size:13px;}}
-    .small-metric {{font-size:12px; color:var(--gedaempft);}}
+    .subtle {{color:var(--gedaempft); font-size:14px;}}
+    .small-metric {{font-size:13px; color:var(--gedaempft);}}
 
     /* Diagrammkarten (st.container(border=True)) */
     [data-testid="stVerticalBlockBorderWrapper"]:has(.chart-titel) {{
       background:var(--flaeche); border:1px solid var(--rand) !important;
-      border-radius:14px; padding:12px 12px 2px 12px; margin-bottom:12px;
+      border-radius:14px; padding:14px 14px 4px 14px; margin-bottom:16px;
     }}
     /* kein negativer Abstand - der schob das Diagramm ueber die Ueberschrift */
     .chart-titel {{
-      font-size:15px; font-weight:600; color:var(--text) !important;
-      line-height:1.3; margin:0 0 8px 0;
+      font-size:16px; font-weight:600; color:var(--text) !important;
+      line-height:1.35; margin:0 0 10px 0;
     }}
     .chart-leer {{
-      font-size:12px; color:var(--gedaempft); padding:14px 4px 20px 4px;
+      font-size:13px; color:var(--gedaempft); padding:14px 4px 20px 4px;
     }}
 
     .karte {{
@@ -227,7 +227,7 @@ st.markdown(
     /* Handy */
     @media (max-width: 640px) {{
         .block-container, [data-testid="stMainBlockContainer"] {{
-            padding-left:0.7rem; padding-right:0.7rem; padding-top:1.2rem;
+            padding-left:1rem; padding-right:1rem; padding-top:1.2rem;
         }}
         .big-title {{font-size:20px;}}
         .karte {{padding:12px;}}
@@ -257,7 +257,7 @@ st.markdown(
 
         /* auf schmalen Bildschirmen weniger Abstand, damit alle Reiter passen */
         .stTabs [data-baseweb="tab-list"] {{gap:16px;}}
-        .stTabs [data-baseweb="tab"] {{font-size:13px;}}
+        .stTabs [data-baseweb="tab"] {{font-size:14px;}}
         h2 {{font-size:20px !important;}}
         h3 {{font-size:17px !important;}}
     }}
@@ -810,22 +810,49 @@ def _textposition_anpassen(fig):
     return fig
 
 
+ACHSEN_SCHRIFT = 12        # Ticks etwas kleiner als der Rest, sonst wachsen
+PLOT_SCHRIFT = 13          # die gedrehten Namen nach unten davon
+TITEL_PLATZ = 45           # Hoehe fuer den Titel ueber dem Diagramm
+ZEICHENFLAECHE = 255       # soviel bleibt fuers Diagramm selbst, immer gleich
+
+
+def _achsen_platz(fig):
+    """Wieviel Platz die gedrehte Achsenbeschriftung unten braucht.
+
+    Feste 115 Pixel waren bei kurzen Beschriftungen verschenkte Hoehe. Hier
+    wird aus der laengsten Zeile geschaetzt; automargin von Plotly vergroessert
+    im Browser nach, falls die Schaetzung zu knapp ist.
+    """
+    texte = list(fig.layout.xaxis.ticktext or [])
+    if not texte:
+        texte = [x for tr in fig.data for x in (tr.x if tr.x is not None else [])
+                 if x is not None]
+    zeilen = [re.sub("<[^>]+>", "", str(t))
+              for text in texte for t in str(text).split("<br>")]
+    laengste = max((len(z) for z in zeilen), default=0)
+    return int(min(170, max(55, 28 + laengste * ACHSEN_SCHRIFT * 0.55)))
+
+
 def _style_plot(fig, tickangle=-90, textfix=True):
     """Einheitliche Formatierung - kompakt genug fuer Handy-Bildschirme.
 
     `textfix=False` für gestapelte Balken: dort kennt Plotly kein 'outside'.
     """
+    unten = _achsen_platz(fig) if tickangle else 45
     fig.update_layout(
         yaxis_title=None,
         xaxis_title=None,
         title_x=0.02,
         title_font_size=16,
-        font=dict(size=11),
-        # gedrehte Spielernamen brauchen unten Platz, waagrechte Labels nicht
-        margin=dict(t=45, b=115 if tickangle else 45, l=8, r=8),
-        height=430,
-        xaxis=dict(tickangle=tickangle, automargin=True),
-        yaxis=dict(automargin=True),
+        font=dict(size=PLOT_SCHRIFT),
+        # gedrehte Beschriftungen brauchen unten Platz, waagrechte nicht.
+        # Die Hoehe waechst mit: sonst nimmt eine lange Beschriftung dem
+        # Diagramm die Flaeche weg und es wirkt gequetscht.
+        margin=dict(t=TITEL_PLATZ, b=unten, l=8, r=8),
+        height=min(470, max(350, TITEL_PLATZ + ZEICHENFLAECHE + unten)),
+        xaxis=dict(tickangle=tickangle, automargin=True,
+                   tickfont=dict(size=ACHSEN_SCHRIFT)),
+        yaxis=dict(automargin=True, tickfont=dict(size=ACHSEN_SCHRIFT)),
         # Legende unter den Plot, damit sie auf dem Handy keine Breite frisst
         legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
     )
@@ -837,8 +864,10 @@ def _style_plot(fig, tickangle=-90, textfix=True):
         font_color=FARBEN["text"],
         title_font_color=FARBEN["text"],
         xaxis=dict(tickangle=tickangle, automargin=True, showgrid=False,
+                   tickfont=dict(size=ACHSEN_SCHRIFT),
                    linecolor=FARBEN["rand"], tickcolor=FARBEN["rand"]),
-        yaxis=dict(automargin=True, gridcolor=FARBEN["rand"], zerolinecolor=FARBEN["rand"]),
+        yaxis=dict(automargin=True, tickfont=dict(size=ACHSEN_SCHRIFT),
+                   gridcolor=FARBEN["rand"], zerolinecolor=FARBEN["rand"]),
     )
     # dunkler Text auf hellen Balken, heller Text ausserhalb
     fig.update_traces(insidetextfont_color=FARBEN["label_innen"],
@@ -1800,7 +1829,7 @@ def plot_torschuesse(df_in, spiele, titel="Torschussquote"):
 
     def zeile(r, seite, schuss_sp, tor_sp):
         return {"Spiel": r["Spiel"], "Seite": seite, "Torschüsse": r[schuss_sp],
-                "Label": (f"{r[schuss_sp]:.0f}<br><span style='font-size:11px'>"
+                "Label": (f"{r[schuss_sp]:.0f}<br><span style='font-size:12px'>"
                           f"{r[tor_sp]:.0f} Tore</span>")}
 
     lang = pd.DataFrame(
@@ -1816,8 +1845,16 @@ def plot_torschuesse(df_in, spiele, titel="Torschussquote"):
     fig.update_traces(textposition="outside", textangle=0, cliponaxis=False)
     fig.update_layout(legend_title_text="")
     fig = _style_plot(fig, textfix=False)
-    # Legende nach oben neben den Titel - unten verdeckt sie die Spielnamen
-    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.0,
+    # Beschriftung in der Farbe ihres Balkens - oben stehen die Zahlen der
+    # beiden Seiten dicht beieinander, ohne Farbe verwechselt man sie.
+    # Muss nach _style_plot kommen, das setzt outsidetextfont fuer alle Balken.
+    for spur in fig.data:
+        spur.update(outsidetextfont=dict(
+            color=FARBEN["gut"] if spur.name == "wir" else FARBEN["schlecht"]))
+    # und etwas Abstand zwischen den beiden Balken eines Spiels, sonst
+    # kleben "2 Tore" und "7 Tore" aneinander
+    fig.update_layout(bargap=0.3, bargroupgap=0.18,
+                      legend=dict(orientation="h", yanchor="bottom", y=1.0,
                                   xanchor="right", x=1))
     hoch = float(lang["Torschüsse"].max())
     fig.update_yaxes(range=[0, hoch * 1.4], title_text="Torschüsse")
