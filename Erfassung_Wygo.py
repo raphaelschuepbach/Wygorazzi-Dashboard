@@ -170,6 +170,7 @@ SPALTEN_GRUPPEN = [
     (["Bully-Plus", "Bully-Minus"], "#C084FC"),
     (["Strafen", "Block"], "#FF7B7B"),
     (["Schüsse", "Schüsse aufs Tor", "Balleroberung"], "#FFB84D"),
+    (["Ballverlust"], "#FF7B7B"),
     (["Powerplay-Plus", "Powerplay-Minus"], "#5EEAD4"),
     (["Boxplay-Plus", "Boxplay-Minus"], "#F472B6"),
 ]

@@ -189,6 +189,8 @@ st.markdown(
     .tor-linie {{
       font-size:12px; color:var(--gedaempft); min-width:58px;
     }}
+    /* in der Einzelspielliste steht die Linie ganz rechts, der Name davor */
+    .tor-linie.rechts {{margin-left:auto; text-align:right; min-width:0;}}
     .tor-stand {{
       font-size:13px; font-weight:700; color:var(--text);
       min-width:46px; text-align:right;
@@ -300,6 +302,16 @@ else:
     tore = pd.DataFrame(columns=["Match_Id", "Nr", "Halbzeit", "Zeit", "Sekunde",
                                  "Art", "Spieler", "Datei", "Video"])
 
+# Eine Zeile je Spiel und Linie: was der Gegner abgeschlossen hat, waehrend
+# diese Linie auf dem Feld war. Wird mit Erfassung_Zusatz.py gefuellt.
+GEGNER_DATEI = "Gegner_Abschluesse.csv"
+if os.path.exists(GEGNER_DATEI):
+    gegner_ab = pd.read_csv(GEGNER_DATEI)
+    gegner_ab.columns = gegner_ab.columns.str.strip()
+else:
+    gegner_ab = pd.DataFrame(columns=["Match_Id", "Linie",
+                                      "Gegner aufs Tor gehalten", "Gegner daneben"])
+
 # ---------------------------
 # Clean column names (trim spaces) and normalize
 # ---------------------------
@@ -322,6 +334,7 @@ def normalize_match_col(df_obj):
 normalize_match_col(df)
 normalize_match_col(wygo)
 normalize_match_col(tore)
+normalize_match_col(gegner_ab)
 
 
 def _mit_spielstand(tore_df):
@@ -541,7 +554,8 @@ else:
 def preprocess_player_stats(df_in):
     # Coerce columns to numeric where needed, fillna with 0
     for col in ["Plus", "Minus", "T", "A", "Bully-Plus", "Bully-Minus", "Linie-Plus", "Linie-Minus",
-                "Strafen", "Block", "Schüsse", "Balleroberung", "Schüsse aufs Tor"]:
+                "Strafen", "Block", "Schüsse", "Balleroberung", "Schüsse aufs Tor",
+                "Ballverlust"]:
         if col in df_in.columns:
             df_in[col] = pd.to_numeric(df_in[col].replace("-", np.nan), errors="coerce").fillna(0)
     # Compute PlusMinus
@@ -598,14 +612,54 @@ def plot_top(df_in, column, title):
 
     return _style_plot(fig)
 
-def plot_plusminus(df_in, titel="Plus-Minus"):
-    """Plus-Minus je Spieler: gruen ueber null, rot darunter.
+def _bilanz_balken(top, bilanz, plus, minus, titel, legende=None):
+    """Eine Bilanz je Spieler als Balken: gruen ueber null, rot darunter.
 
-    Ueber der Bilanz stehen die beiden Einzelwerte - wie viele Plus und wie
-    viele Minus daraus entstanden sind. Die Achse bekommt ganzzahlige
+    Ueber der Bilanz stehen die beiden Einzelwerte, aus denen sie entsteht -
+    gruen der gute, rot der schlechte. Die Achse bekommt ganzzahlige
     Schritte, damit ein +1 oder -1 ueberhaupt sichtbar ist, und die Zahlen
-    rutschen aus dem Balken heraus, sobald er zu flach dafuer ist.
+    rutschen aus dem Balken heraus, sobald er zu flach dafuer ist. Erwartet
+    eine fertig sortierte Tabelle mit "Name" und den drei Wertespalten.
     """
+    groesster = max(abs(float(v)) for v in top[bilanz]) or 1
+    # Balken unter gut einem Fuenftel des groessten haben innen keinen Platz
+    schwelle = groesster * 0.3
+    stellen = ["inside" if abs(float(v)) >= schwelle else "outside"
+               for v in top[bilanz]]
+
+    def _label(wert, gut_wert, schlecht_wert, aussen):
+        # aussen steht der Text auf dunklem Grund, innen auf hellem Balken -
+        # die beiden Einzelwerte brauchen darum je eigene Farben
+        gut = FARBEN["gut"] if aussen else FARBEN["label_gut"]
+        schlecht = FARBEN["schlecht"] if aussen else FARBEN["label_schlecht"]
+        zahl = f"{wert:+.0f}" if wert else "0"
+        return (f'<span style="color:{gut}">{gut_wert:.0f}</span>  '
+                f'<span style="color:{schlecht}">{schlecht_wert:.0f}</span><br>'
+                f'<b>{zahl}</b>')
+
+    top["Farbe"] = [FARBEN["gut"] if v > 0 else FARBEN["schlecht"] if v < 0
+                    else FARBEN["neutral"] for v in top[bilanz]]
+    top["Label"] = [_label(b, p, m, stelle == "outside")
+                    for b, p, m, stelle in zip(top[bilanz], top[plus],
+                                               top[minus], stellen)]
+
+    fig = px.bar(top, x="Name", y=bilanz, title=titel, text="Label")
+    fig.update_traces(marker_color=list(top["Farbe"]), textposition=stellen,
+                      textangle=0, cliponaxis=False, showlegend=False)
+
+    # ganzzahlige Achsenschritte und Luft fuer die zweizeiligen Zahlen aussen
+    schritt = 1 if groesster <= 8 else 2 if groesster <= 20 else 5 if groesster <= 50 else 10
+    luft = max(2 * schritt, groesster * 0.3)
+    unten = min(0.0, float(top[bilanz].min()) - luft)
+    oben = max(0.0, float(top[bilanz].max()) + luft)
+    fig = _style_plot(fig, textfix=False)
+    fig.update_yaxes(dtick=schritt, range=[unten, oben], zeroline=True,
+                     zerolinewidth=2, zerolinecolor=FARBEN["gedaempft"])
+    return _zahlen_legende(fig, *legende) if legende else fig
+
+
+def plot_plusminus(df_in, titel="Plus-Minus"):
+    """Plus-Minus je Spieler - wie viele Plus und Minus daraus entstanden."""
     if "PlusMinus" not in df_in.columns or df_in.empty:
         return None
     d = df_in.copy()
@@ -615,42 +669,8 @@ def plot_plusminus(df_in, titel="Plus-Minus"):
            .sort_values("PlusMinus", ascending=False).reset_index())
     if top.empty:
         return None
-
-    groesster = max(abs(float(v)) for v in top["PlusMinus"]) or 1
-    # Balken unter gut einem Fuenftel des groessten haben innen keinen Platz
-    schwelle = groesster * 0.3
-    stellen = ["inside" if abs(float(v)) >= schwelle else "outside"
-               for v in top["PlusMinus"]]
-
-    def _label(pm, plus, minus, aussen):
-        # aussen steht der Text auf dunklem Grund, innen auf hellem Balken -
-        # die beiden Einzelwerte brauchen darum je eigene Farben
-        gut = FARBEN["gut"] if aussen else FARBEN["label_gut"]
-        schlecht = FARBEN["schlecht"] if aussen else FARBEN["label_schlecht"]
-        bilanz = f"{pm:+.0f}" if pm else "0"
-        return (f'<span style="color:{gut}">{plus:.0f}</span>  '
-                f'<span style="color:{schlecht}">{minus:.0f}</span><br>'
-                f'<b>{bilanz}</b>')
-
-    top["Farbe"] = [FARBEN["gut"] if v > 0 else FARBEN["schlecht"] if v < 0
-                    else FARBEN["neutral"] for v in top["PlusMinus"]]
-    top["Label"] = [_label(pm, p, m, stelle == "outside")
-                    for pm, p, m, stelle in zip(top["PlusMinus"], top["Plus"],
-                                                top["Minus"], stellen)]
-
-    fig = px.bar(top, x="Name", y="PlusMinus", title=titel, text="Label")
-    fig.update_traces(marker_color=list(top["Farbe"]), textposition=stellen,
-                      textangle=0, cliponaxis=False, showlegend=False)
-
-    # ganzzahlige Achsenschritte und Luft fuer die zweizeiligen Zahlen aussen
-    schritt = 1 if groesster <= 8 else 2 if groesster <= 20 else 5 if groesster <= 50 else 10
-    luft = max(2 * schritt, groesster * 0.3)
-    unten = min(0.0, float(top["PlusMinus"].min()) - luft)
-    oben = max(0.0, float(top["PlusMinus"].max()) + luft)
-    fig = _style_plot(fig, textfix=False)
-    fig.update_yaxes(dtick=schritt, range=[unten, oben], zeroline=True,
-                     zerolinewidth=2, zerolinecolor=FARBEN["gedaempft"])
-    return fig
+    return _bilanz_balken(top, "PlusMinus", "Plus", "Minus", titel,
+                          legende=("Plus", "Minus"))
 
 
 def plot_zuspiele(tore_zeilen,
@@ -719,11 +739,13 @@ def plot_zuspiele(tore_zeilen,
 
 
 def plot_bully(df_in):
-    if "Bully-Plus" not in df_in.columns:
-        df_in["Bully-Plus"] = 0
-    if "Bully-Minus" not in df_in.columns:
-        df_in["Bully-Minus"] = 0
-    bully = df_in.groupby("Name")[["Bully-Plus", "Bully-Minus"]].sum().reset_index()
+    # Torhueter stehen nie am Bullypunkt - eine Nullquote neben den
+    # Feldspielern waere nur Ballast.
+    d = nur_feldspieler(df_in).copy()
+    for spalte in ("Bully-Plus", "Bully-Minus"):
+        if spalte not in d.columns:
+            d[spalte] = 0
+    bully = d.groupby("Name")[["Bully-Plus", "Bully-Minus"]].sum().reset_index()
     denom = (bully["Bully-Plus"] + bully["Bully-Minus"]).replace({0: np.nan})
     bully["Bully-Gewinn %"] = 100 * bully["Bully-Plus"] / denom
     bully["Bully-Gewinn %"] = bully["Bully-Gewinn %"].fillna(0)
@@ -735,7 +757,7 @@ def plot_bully(df_in):
     ]
     fig = px.bar(top, x="Name", y="Bully-Gewinn %", title="Bully-Gewinnquote", text="Label")
     fig.update_traces(textposition='auto', textangle=0, showlegend=False)
-    return _style_plot(fig)
+    return _zahlen_legende(_style_plot(fig), "gewonnen", "verloren")
 
 def plot_gespielt(df_in):
     if "Gespielt" not in df_in.columns:
@@ -754,6 +776,9 @@ SPALTE_BLOCK = "Block"
 SPALTE_SCHUESSE = "Schüsse"
 SPALTE_BALLEROBERUNG = "Balleroberung"
 SPALTE_SAT = "Schüsse aufs Tor"
+SPALTE_BALLVERLUST = "Ballverlust"
+SPALTE_GEHALTEN = "Gegner aufs Tor gehalten"
+SPALTE_DANEBEN = "Gegner daneben"
 ERWEITERTE_SPALTEN = [SPALTE_BLOCK, SPALTE_SCHUESSE, SPALTE_BALLEROBERUNG, SPALTE_SAT]
 
 
@@ -780,6 +805,41 @@ def nur_torhueter(df_in):
     return d
 
 
+def _einsaetze(df_in):
+    """Wie viele Spiele die Auswahl umfasst und wer wie oft dabei war."""
+    da = (df_in[df_in["Gespielt"].astype(str).str.strip() == "Ja"]
+          if "Gespielt" in df_in.columns else df_in)
+    return df_in[MATCH_COL].nunique(), da.groupby("Name")[MATCH_COL].nunique()
+
+
+def stammspieler(df_in):
+    """Namen, die mindestens die Haelfte der Spiele dabei waren.
+
+    Wer zwei Einsaetze hat, stuende sonst mit einer Handvoll Werten neben
+    Spielern mit der ganzen Saison - das verzerrt jede Rangliste. Es geht
+    dabei nur um die Anzeige im Spieler-Tab: in den Team- und Linienwerten
+    zaehlen die Schuesse und Tore dieser Spieler unveraendert mit.
+    """
+    if df_in.empty or "Name" not in df_in.columns:
+        return set()
+    gesamt, anzahl = _einsaetze(df_in)
+    return set(anzahl[anzahl >= gesamt / 2].index)
+
+
+def nur_stammspieler(df_in, mit_punkten=False):
+    """Die Auswahl auf die Stammspieler eingrenzen.
+
+    mit_punkten=True laesst zusaetzlich jeden stehen, der hier einen Punkt
+    gemacht hat - in die Tor- und Assistliste gehoert ein Treffer, auch wenn
+    er aus zwei Einsaetzen stammt.
+    """
+    namen = stammspieler(df_in)
+    if mit_punkten and "Punkte" in df_in.columns:
+        punkte = df_in.groupby("Name")["Punkte"].sum()
+        namen |= set(punkte[punkte > 0].index)
+    return df_in[df_in["Name"].isin(namen)]
+
+
 def _zahl(v):
     """Ganze Zahlen ohne Nachkommastelle, sonst eine."""
     return f"{v:.0f}" if abs(v - round(v)) < 1e-9 else f"{v:.1f}"
@@ -791,6 +851,42 @@ def _quote_label(quote, gut, schlecht, teiler=1):
             f'<span style="color:{FARBEN["label_gut"]}">{_zahl(gut / teiler)}</span>'
             f'\u00a0\u00a0'
             f'<span style="color:{FARBEN["label_schlecht"]}">{_zahl(schlecht / teiler)}</span>')
+
+
+def _zahlen_legende(fig, gut, schlecht):
+    """Erklaert die beiden farbigen Zahlen am Balken.
+
+    Fast jede Karte zeigt unter dem Hauptwert zwei Zahlen, gruen und rot.
+    Was sie bedeuten, stand bisher nirgends. Die Legende sitzt oben rechts
+    im Plot - dort ist bei absteigend sortierten Balken Platz - und bekommt
+    etwas Luft ueber dem hoechsten Balken. Sie muss in den Plot hinein: das
+    Kartenraster setzt den oberen Rand spaeter auf vier Pixel, alles
+    darueber waere abgeschnitten.
+    """
+    werte = [float(v) for spur in fig.data
+             for v in (spur.y if spur.y is not None else []) if v is not None]
+    if not werte:
+        return fig
+    # Die Legende steht rechts oben, im Weg sind ihr nur die rechten Balken.
+    # Bei absteigend sortierten Karten sind das die kleinsten - dort braucht
+    # es gar keine Luft, sonst stuende auf einer Prozentachse ploetzlich 114 %.
+    rechts = max(werte[-max(1, len(werte) // 3):])
+    bereich = fig.layout.yaxis.range
+    if bereich:
+        unten, oben = float(bereich[0]), float(bereich[1])
+        if rechts > unten + (oben - unten) * 0.8:
+            fig.update_yaxes(range=[unten, oben + (oben - unten) * 0.14])
+    elif max(werte) > 0:
+        luft = 1.3 if rechts > max(werte) * 0.8 else 1.12
+        fig.update_yaxes(range=[min(0.0, min(werte)), max(werte) * luft])
+    fig.add_annotation(
+        xref="paper", yref="paper", x=1, y=1, xanchor="right", yanchor="top",
+        showarrow=False, align="right", font=dict(size=11),
+        bgcolor=FARBEN["flaeche"], borderpad=3, opacity=0.9,
+        text=(f"<span style='color:{FARBEN['gut']}'>■ {gut}</span>"
+              f"   "
+              f"<span style='color:{FARBEN['schlecht']}'>■ {schlecht}</span>"))
+    return fig
 
 
 def _textposition_anpassen(fig):
@@ -890,7 +986,63 @@ def plot_summe(df_in, column, title, ohne_torhueter=True):
     return _style_plot(fig)
 
 
-def plot_quote(df_in, zaehler, nenner, title, ohne_torhueter=True):
+def _ballverlust_spiele(df_in):
+    """Feldspieler aus den Spielen, in denen Ballverluste gezaehlt wurden.
+
+    Sonst stuende eine Null fuer "hatte keinen Ballverlust" und fuer "wurde
+    nie erfasst" - und in der Bilanz zaehlten Balleroberungen aus Spielen
+    mit, fuer die es die Gegenseite gar nicht gibt.
+    """
+    d = nur_feldspieler(df_in)
+    if SPALTE_BALLVERLUST not in d.columns or d.empty:
+        return None
+    je_spiel = d.groupby(MATCH_COL)[SPALTE_BALLVERLUST].sum()
+    erfasst = set(je_spiel[je_spiel > 0].index)
+    if not erfasst:
+        return None
+    return d[d[MATCH_COL].isin(erfasst)]
+
+
+def plot_ballverluste(df_in, titel="Ballverlust/Fehlpässe"):
+    """Je Spieler - anders als sonst steht links, wer am wenigsten hat.
+
+    Bei allen anderen Summen ist viel gut, hier ist wenig gut; die umgekehrte
+    Reihenfolge haelt die beste Zahl trotzdem am gewohnten Platz.
+    """
+    d = _ballverlust_spiele(df_in)
+    if d is None:
+        return None
+    summe = d.groupby("Name")[SPALTE_BALLVERLUST].sum()
+    top = summe.sort_values().reset_index()
+    fig = px.bar(top, x="Name", y=SPALTE_BALLVERLUST, text=SPALTE_BALLVERLUST,
+                 title=titel)
+    fig.update_traces(texttemplate="%{text:.0f}", textposition="inside",
+                      textangle=0, showlegend=False)
+    return _style_plot(fig)
+
+
+def plot_ballbilanz(df_in, titel="Balleroberungen − Ballverluste"):
+    """Was einer dem Gegner abnimmt, gegen das, was er ihm schenkt.
+
+    Gleiche Lesart wie beim Plus-Minus: oben gruen die Eroberungen, rot die
+    Verluste, darunter die Bilanz. Gerechnet wird nur ueber die Spiele mit
+    erfassten Ballverlusten, sonst stuenden Eroberungen ohne Gegenseite drin.
+    """
+    d = _ballverlust_spiele(df_in)
+    if d is None or SPALTE_BALLEROBERUNG not in d.columns:
+        return None
+    top = d.groupby("Name")[[SPALTE_BALLEROBERUNG, SPALTE_BALLVERLUST]].sum()
+    top["Bilanz"] = top[SPALTE_BALLEROBERUNG] - top[SPALTE_BALLVERLUST]
+    top = top.sort_values("Bilanz", ascending=False).reset_index()
+    if top.empty:
+        return None
+    return _bilanz_balken(top, "Bilanz", SPALTE_BALLEROBERUNG,
+                          SPALTE_BALLVERLUST, titel,
+                          legende=("Balleroberungen", "Ballverluste"))
+
+
+def plot_quote(df_in, zaehler, nenner, title, ohne_torhueter=True,
+               legende=None):
     """Prozentquote zaehler/nenner pro Spieler. Spieler ohne Nenner fallen raus.
 
     Unter der Quote stehen Treffer grün und der Rest (Nenner - Zähler) rot.
@@ -909,7 +1061,8 @@ def plot_quote(df_in, zaehler, nenner, title, ohne_torhueter=True):
                     zip(top["Quote"], top[zaehler], top[nenner])]
     fig = px.bar(top, x="Name", y="Quote", title=title, text="Label")
     fig.update_traces(textangle=0, showlegend=False)
-    return _style_plot(fig)
+    fig = _style_plot(fig)
+    return _zahlen_legende(fig, *legende) if legende else fig
 
 
 def plot_fangquote(df_in):
@@ -928,7 +1081,7 @@ def plot_fangquote(df_in):
                     zip(top["Fangquote"], top[SPALTE_BLOCK], top["Minus"])]
     fig = px.bar(top, x="Name", y="Fangquote", title="Torhüter-Fangquote", text="Label")
     fig.update_traces(textangle=0, showlegend=False)
-    return _style_plot(fig)
+    return _zahlen_legende(_style_plot(fig), "Paraden", "Gegentore")
 
 
 def _eintrag(fig, hinweis=None, breit=False):
@@ -1154,7 +1307,7 @@ def plot_linie_summe(df_in, column, title):
     return _style_plot(fig, tickangle=0)
 
 
-def plot_linie_quote(df_in, zaehler, nenner, title, teiler=1):
+def plot_linie_quote(df_in, zaehler, nenner, title, teiler=1, legende=None):
     """Quote je Linie, darunter Treffer grün und Rest rot.
 
     `teiler` rechnet Spielermarkierungen in Situationen um: im Powerplay ist
@@ -1176,7 +1329,8 @@ def plot_linie_quote(df_in, zaehler, nenner, title, teiler=1):
                  color="Linie_Label", color_discrete_map=LINIEN_FARBEN)
     fig.update_traces(textangle=0)
     fig.update_layout(showlegend=False)
-    return _style_plot(fig, tickangle=0)
+    fig = _style_plot(fig, tickangle=0)
+    return _zahlen_legende(fig, *legende) if legende else fig
 
 
 def linien_bilanz(tore_zeilen):
@@ -1222,7 +1376,7 @@ def plot_linie_plusminus(tore_zeilen):
                  text="Label", color="Linie_Label", color_discrete_map=LINIEN_FARBEN)
     fig.update_traces(textangle=0)
     fig.update_layout(showlegend=False)
-    return _style_plot(fig, tickangle=0)
+    return _zahlen_legende(_style_plot(fig, tickangle=0), "Tore", "Gegentore")
 
 
 # ---------------------------
@@ -1245,40 +1399,61 @@ def team_situationen(wygo_zeilen):
 
 
 def tab_pro_spieler(df_in, zeige_gespielt=False, spiele=None):
+    # Gezeigt wird nur, wer mindestens die Haelfte der Spiele dabei war; wer
+    # gepunktet hat, steht zusaetzlich in den Karten, die zur Punkteliste
+    # gehoeren - Tore, Assists, Punkte, Plus-Minus, Strafen. Die
+    # Fangquote und die Spieleuebersicht bleiben vollstaendig - Torhueter
+    # wechseln sich ab, und wer wie oft gespielt hat, gehoert vollzaehlig
+    # aufs Blatt.
+    stamm = nur_stammspieler(df_in)
+    punkte = nur_stammspieler(df_in, mit_punkten=True)
     eintraege = [
-        _eintrag(plot_top(df_in, "T", "Tore")),
-        _eintrag(plot_top(df_in, "A", "Assists")),
-        _eintrag(plot_top(df_in, "Punkte", "Punkte (T+A)")),
-        _eintrag(plot_plusminus(df_in), "Plus-Minus"),
-        _eintrag(plot_top(df_in, "Strafen", "Strafen")),
-        _eintrag(plot_bully(df_in), "Bully-Gewinnquote"),
+        _eintrag(plot_top(punkte, "T", "Tore")),
+        _eintrag(plot_top(punkte, "A", "Assists")),
+        _eintrag(plot_top(punkte, "Punkte", "Punkte (T+A)")),
+        _eintrag(plot_plusminus(punkte), "Plus-Minus"),
+        _eintrag(plot_top(punkte, "Strafen", "Strafen")),
+        _eintrag(plot_bully(stamm), "Bully-Gewinnquote"),
     ]
     if hat_erweiterte_daten(df_in):
         eintraege += [
-            _eintrag(plot_summe(df_in, SPALTE_BLOCK, "Geblockte Schüsse"),
+            _eintrag(plot_summe(stamm, SPALTE_BLOCK, "Geblockte Schüsse"),
                      "Geblockte Schüsse"),
             _eintrag(plot_fangquote(df_in), "Torhüter-Fangquote"),
-            _eintrag(plot_summe(df_in, SPALTE_BALLEROBERUNG, "Balleroberungen"),
+            _eintrag(plot_summe(stamm, SPALTE_BALLEROBERUNG, "Balleroberungen"),
                      "Balleroberungen"),
-            _eintrag(plot_summe(df_in, SPALTE_SCHUESSE, "Schüsse pro Spieler"),
+        ]
+        # Ballverluste und Corsi sind erst teilweise erfasst - eine leere Karte
+        # in jedem Spiel ohne Zahlen waere nur Rauschen.
+        for karte in (plot_ballverluste(stamm), plot_ballbilanz(stamm)):
+            if karte is not None:
+                eintraege.append(_eintrag(karte))
+        eintraege += [
+            _eintrag(plot_summe(stamm, SPALTE_SCHUESSE, "Schüsse pro Spieler"),
                      "Schüsse pro Spieler"),
-            _eintrag(plot_quote(df_in, SPALTE_SAT, SPALTE_SCHUESSE, "Schüsse aufs Tor"),
+            _eintrag(plot_quote(stamm, SPALTE_SAT, SPALTE_SCHUESSE, "Schüsse aufs Tor",
+                                legende=("aufs Tor", "daneben oder geblockt")),
                      "Schüsse aufs Tor"),
-            _eintrag(plot_quote(df_in, "T", SPALTE_SAT, "Torquote aus den Torschüssen"),
+            _eintrag(plot_quote(stamm, "T", SPALTE_SAT, "Torquote aus den Torschüssen",
+                                legende=("Tore", "gehalten")),
                      "Torquote aus den Torschüssen"),
         ]
     if hat_spezial_daten(df_in):
         eintraege += [
-            _eintrag(plot_quote(df_in, "Powerplay-Plus", "Powerplay-Gesamt",
-                                "Powerplay-Erfolgsquote"), "Powerplay-Erfolgsquote"),
-            _eintrag(plot_quote(df_in, "Boxplay-Plus", "Boxplay-Gesamt",
-                                "Boxplay-Erfolgsquote"), "Boxplay-Erfolgsquote"),
+            _eintrag(plot_quote(stamm, "Powerplay-Plus", "Powerplay-Gesamt",
+                                "Powerplay-Erfolgsquote",
+                                legende=("erfolgreich", "nicht erfolgreich")),
+                     "Powerplay-Erfolgsquote"),
+            _eintrag(plot_quote(stamm, "Boxplay-Plus", "Boxplay-Gesamt",
+                                "Boxplay-Erfolgsquote",
+                                legende=("erfolgreich", "nicht erfolgreich")),
+                     "Boxplay-Erfolgsquote"),
         ]
     # Die beiden Uebersichten zum Schluss: eine Zahl je Spieler und wer wann
     # geliefert hat. Beide brauchen die volle Breite.
     eintraege += [e for e in (
-        _eintrag(plot_game_score(df_in), breit=True),
-        _eintrag(plot_punkte_teppich(df_in, spiele), breit=True)
+        _eintrag(plot_game_score(stamm), breit=True),
+        _eintrag(plot_punkte_teppich(punkte, spiele), breit=True)
         if spiele is not None else None,
     ) if e is not None and e[1] is not None]
     if zeige_gespielt:
@@ -1292,7 +1467,8 @@ def tab_pro_linie(df_in, tore_zeilen=None):
         _eintrag(plot_linie_summe(df_in, "Strafen", "Strafen je Linie"),
                  "Strafen je Linie"),
         _eintrag(plot_linie_quote(df_in, "Bully-Plus", "Bully-Gesamt",
-                                  "Bully-Gewinnquote je Linie"), "Bully-Gewinnquote je Linie"),
+                                  "Bully-Gewinnquote je Linie",
+                                  legende=("gewonnen", "verloren")), "Bully-Gewinnquote je Linie"),
     ]
     if hat_erweiterte_daten(df_in):
         eintraege += [
@@ -1303,21 +1479,39 @@ def tab_pro_linie(df_in, tore_zeilen=None):
             _eintrag(plot_linie_summe(df_in, SPALTE_SCHUESSE, "Schüsse je Linie"),
                      "Schüsse je Linie"),
             _eintrag(plot_linie_quote(df_in, SPALTE_SAT, SPALTE_SCHUESSE,
-                                      "Schüsse aufs Tor je Linie"), "Schüsse aufs Tor je Linie"),
+                                      "Schüsse aufs Tor je Linie",
+                                      legende=("aufs Tor", "daneben oder geblockt")), "Schüsse aufs Tor je Linie"),
             _eintrag(plot_linie_quote(df_in, "T", SPALTE_SAT,
-                                      "Torquote aus den Torschüssen je Linie"),
+                                      "Torquote aus den Torschüssen je Linie",
+                                      legende=("Tore", "gehalten")),
                      "Torquote aus den Torschüssen je Linie"),
         ]
     if hat_spezial_daten(df_in):
         # je Situation sind im Powerplay 3 Spieler markiert, im Boxplay 2
         eintraege += [
             _eintrag(plot_linie_quote(df_in, "Powerplay-Plus", "Powerplay-Gesamt",
-                                      "Powerplay-Erfolgsquote je Linie", teiler=3),
+                                      "Powerplay-Erfolgsquote je Linie", teiler=3,
+                                      legende=("erfolgreich", "nicht erfolgreich")),
                      "Powerplay-Erfolgsquote je Linie"),
             _eintrag(plot_linie_quote(df_in, "Boxplay-Plus", "Boxplay-Gesamt",
-                                      "Boxplay-Erfolgsquote je Linie", teiler=2),
+                                      "Boxplay-Erfolgsquote je Linie", teiler=2,
+                                      legende=("erfolgreich", "nicht erfolgreich")),
                      "Boxplay-Erfolgsquote je Linie"),
         ]
+    # Corsi nur, wo Gegner_Abschluesse.csv Zahlen hat
+    corsi = plot_corsi_linien(df_in, tore_zeilen)
+    if corsi is not None:
+        eintraege.insert(0, _eintrag(corsi))
+    # direkt daneben, wie gefaehrlich das Zugelassene war
+    treffer = plot_gegner_trefferquote(df_in, tore_zeilen)
+    if treffer is not None:
+        eintraege.insert(1 if corsi is not None else 0, _eintrag(treffer))
+    # je Linie das eigene Ursachenbild, Tore und Gegentore direkt untereinander
+    for linie in LINIEN:
+        for art in ("Tor", "Gegentor"):
+            ursachen = plot_kategorien(tore_zeilen, art=art, linie=linie)
+            if ursachen is not None:
+                eintraege.append(_eintrag(ursachen, breit=True))
     raster(*eintraege)
 
 
@@ -1331,19 +1525,23 @@ def _spiel_label(zeile):
     return f"{tag}{str(zeile.get('Gegner', ''))[:14]}"
 
 
+def chronologisch(spiele):
+    """Die Spiele der Auswahl in zeitlicher Folge, jedes nur einmal.
+
+    Alle Karten mit Spielen auf der x-Achse gehen hierdurch, damit das
+    aelteste Spiel ueberall links steht - sonst liest man zwei Karten
+    nebeneinander in entgegengesetzter Richtung.
+    """
+    if spiele is None or spiele.empty or MATCH_COL not in spiele.columns:
+        return pd.DataFrame()
+    d = spiele.sort_values(["Datum_parsed", MATCH_COL], na_position="first")
+    return d[d[MATCH_COL].notna() & ~d[MATCH_COL].duplicated()]
+
+
 def _spielfolge(spiele):
     """Die Spiele der Auswahl in zeitlicher Folge: [(Match_Id, Beschriftung), ...]."""
-    if spiele is None or spiele.empty:
-        return []
-    d = spiele.sort_values(["Datum_parsed", MATCH_COL], na_position="first")
-    folge, gesehen = [], set()
-    for _, r in d.iterrows():
-        mid = r.get(MATCH_COL)
-        if pd.isna(mid) or mid in gesehen:
-            continue
-        gesehen.add(mid)
-        folge.append((mid, _spiel_label(r)))
-    return folge
+    return [(r[MATCH_COL], _spiel_label(r))
+            for _, r in chronologisch(spiele).iterrows()]
 
 
 # Klar unterscheidbare Farben - eine je Spieler, in beiden Verlaufskarten
@@ -1471,6 +1669,102 @@ def plot_tore_minuten(tore_zeilen):
                       cliponaxis=False)
     fig.update_layout(legend_title_text="")
     return _style_plot(fig, tickangle=0, textfix=False)
+
+
+# Die Kategorie steht als Spalte in Tore.csv, nur bei Gegentoren. Auf der
+# Achse umgebrochen: ein gedrehter Text von 33 Zeichen frisst sonst die halbe
+# Karte.
+KATEGORIE_ACHSE = {
+    "Nicht geblockt eigene Hälfte": "Nicht geblockt<br>eigene Hälfte",
+    "Nicht geblockt gegnerische Hälfte": "Nicht geblockt<br>gegn. Hälfte",
+    "Ballverlust Konter": "Ballverlust<br>Konter",
+    "Überlaufen eigene Hälfte": "Überlaufen<br>eigene Hälfte",
+    "Überlaufen gegnerische Hälfte": "Überlaufen<br>gegn. Hälfte",
+    # Kategorien unserer eigenen Tore
+    "Schuss eigene Hälfte": "Schuss<br>eigene Hälfte",
+    "Schuss gegner Hälfte": "Schuss<br>gegn. Hälfte",
+    "Gegner Überlaufen gegner Hälfte": "Gegner überlaufen<br>gegn. Hälfte",
+    "Gegner Überlaufen eigene Hälfte": "Gegner überlaufen<br>eigene Hälfte",
+    "Zuteilungsfehler Gegner": "Zuteilungsfehler<br>Gegner",
+    "Ballgewinn Konter": "Ballgewinn<br>Konter",
+}
+
+ART_KURZ = {"Tor": "Tore", "Gegentor": "Gegentore"}
+
+
+def _linien_von(roh):
+    """'1+3' -> ['1', '3'] - gemischte Formation zaehlt fuer beide Linien."""
+    teile = [t.strip().removesuffix(".0")
+             for t in str(roh or "").replace(";", "+").split("+")]
+    return [t for t in teile if t in LINIEN]
+
+
+def kategorie_zaehlung(tore_zeilen, art="Gegentor", linie=None):
+    """Tore oder Gegentore je Kategorie und Linie zaehlen.
+
+    Wie bei linien_bilanz zaehlt ein Treffer mit gemischter Formation ("1+3")
+    fuer beide Linien - die Summe kann deshalb ueber der Trefferzahl liegen.
+    Mit linie="2" bleibt nur diese eine Linie uebrig.
+    """
+    if (tore_zeilen is None or tore_zeilen.empty
+            or "Kategorie" not in tore_zeilen.columns):
+        return pd.DataFrame()
+    ist_tor = tore_zeilen["Art"].astype(str).str.strip() == "Tor"
+    d = tore_zeilen[ist_tor if art == "Tor" else ~ist_tor].copy()
+    d["Kategorie"] = d["Kategorie"].astype(str).str.strip()
+    d = d[~d["Kategorie"].isin(("", "nan", "None"))]
+    if d.empty:
+        return pd.DataFrame()
+    zeilen = [{"Kategorie": k, "Linie_Label": f"Linie {l}"}
+              for k, roh in zip(d["Kategorie"], d["Linie"])
+              for l in _linien_von(roh)
+              if linie is None or l == str(linie)]
+    if not zeilen:
+        return pd.DataFrame()
+    return (pd.DataFrame(zeilen).groupby(["Kategorie", "Linie_Label"])
+            .size().reset_index(name="Anzahl"))
+
+
+def plot_kategorien(tore_zeilen, art="Gegentor", linie=None, titel=None):
+    """Je Ursache ein Balken, gestapelt nach der Linie, die auf dem Feld war.
+
+    Zeigt zweierlei auf einmal: woran es insgesamt am haeufigsten liegt, und
+    ob eine Linie ein eigenes Muster hat. Mit linie="2" wird daraus das Bild
+    dieser einen Linie, dann in ihrer Farbe und ohne Legende.
+    """
+    d = kategorie_zaehlung(tore_zeilen, art, linie)
+    if d.empty:
+        return None
+    if titel is None:
+        titel = (f"{ART_KURZ[art]} kategorisiert — Linie {linie}" if linie
+                 else f"{ART_KURZ[art]} kategorisiert")
+    gesamt = d.groupby("Kategorie")["Anzahl"].sum().sort_values(ascending=False)
+    d["Achse"] = [KATEGORIE_ACHSE.get(k, k) for k in d["Kategorie"]]
+    reihenfolge = [KATEGORIE_ACHSE.get(k, k) for k in gesamt.index]
+
+    fig = px.bar(d, x="Achse", y="Anzahl", color="Linie_Label", title=titel,
+                 text="Anzahl",
+                 category_orders={"Achse": reihenfolge,
+                                  "Linie_Label": list(LINIEN_FARBEN)},
+                 color_discrete_map=LINIEN_FARBEN)
+    fig.update_traces(textposition="inside", textangle=0, insidetextanchor="middle",
+                      insidetextfont=dict(color=FARBEN["label_innen"], size=12))
+    fig.update_layout(legend_title_text="", uniformtext_minsize=9,
+                      uniformtext_mode="hide", showlegend=linie is None)
+    fig = _style_plot(fig, textfix=False)
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.0,
+                                  xanchor="right", x=1))
+    # Summe ueber jeden Balken, sonst muss man die Stapel im Kopf addieren
+    for kategorie, anzahl in gesamt.items():
+        fig.add_annotation(x=KATEGORIE_ACHSE.get(kategorie, kategorie), y=int(anzahl),
+                           text=f"<b>{int(anzahl)}</b>", showarrow=False, yshift=11,
+                           font=dict(size=13, color=FARBEN["text"]))
+    hoechste = float(gesamt.max())
+    fig.update_yaxes(dtick=1 if hoechste <= 12 else 2,
+                     range=[0, hoechste + max(1.2, hoechste * 0.18)],
+                     title_text=ART_KURZ[art])
+    return fig
+
 
 
 def _torfolge(tore_zeilen):
@@ -1716,6 +2010,202 @@ def _textfarbe(rgb):
     return FARBEN["label_innen"] if hell > 0.5 else FARBEN["text"]
 
 
+# ---------------------------
+# Corsi: alle Abschlussversuche beider Seiten
+# ---------------------------
+def _gegner_abschluesse(ids):
+    """Die erfassten Gegner-Abschluesse der gewaehlten Spiele, als Zahlen."""
+    if gegner_ab.empty:
+        return pd.DataFrame()
+    d = gegner_ab[gegner_ab[MATCH_COL].isin(ids)].copy()
+    for sp in (SPALTE_GEHALTEN, SPALTE_DANEBEN):
+        d[sp] = pd.to_numeric(d.get(sp), errors="coerce").fillna(0)
+    return d
+
+
+def corsi_zahlen(df_in, tore_zeilen):
+    """CF und CA je Linie und fuers Team.
+
+    CF sind unsere Abschlussversuche (Spalte Schuesse), CA die des Gegners:
+    Gegentore, vom Torhueter gehalten, von uns geblockt und daneben. Gerechnet
+    wird nur ueber Spiele, fuer die Gegner_Abschluesse.csv Zahlen hat - sonst
+    fehlten zwei der vier Teile und die Quote saehe viel zu gut aus.
+
+    Die gehaltenen Schuesse zaehlen auf beiden Ebenen verschieden: fuers Team
+    gelten alle Paraden des Torhueters, je Linie nur die, die sich auch einer
+    Linie zuordnen lassen. In Unterzahl steht keine Linie als Einheit auf dem
+    Feld - diese Schuesse fehlen deshalb bei den Linien und sind trotzdem im
+    Teamwert. Die Summe ueber die Linien ist also kleiner als der Teamwert.
+
+    Zurueck kommt (Tabelle je Linie, Teamwerte, Anzahl Spiele). Beim Team
+    zaehlt jede Zeile einmal, je Linie zaehlt eine gemischte Formation ("1+3")
+    fuer beide - wie bei linien_bilanz.
+    """
+    leer = (pd.DataFrame(), {}, 0)
+    if df_in is None or df_in.empty or SPALTE_SCHUESSE not in df_in.columns:
+        return leer
+    g = _gegner_abschluesse(set(df_in[MATCH_COL].dropna().unique()))
+    if g.empty:
+        return leer
+    ids = set(g[MATCH_COL].dropna().unique())
+    d = df_in[df_in[MATCH_COL].isin(ids)]
+    feld = nur_feldspieler(d)
+    if feld.empty:
+        return leer
+
+    cf = feld.groupby(feld["Linie"].astype(str))[SPALTE_SCHUESSE].sum()
+    geblockt = feld.groupby(feld["Linie"].astype(str))[SPALTE_BLOCK].sum()
+
+    gegentore = {l: 0 for l in LINIEN}
+    anzahl_gegentore = 0
+    if tore_zeilen is not None and not tore_zeilen.empty:
+        t = tore_zeilen[(tore_zeilen[MATCH_COL].isin(ids))
+                        & (tore_zeilen["Art"].astype(str).str.strip() == "Gegentor")]
+        anzahl_gegentore = len(t)
+        for roh in t["Linie"]:
+            for l in _linien_von(roh):
+                gegentore[l] += 1
+
+    gehalten = {l: 0.0 for l in LINIEN}
+    daneben = {l: 0.0 for l in LINIEN}
+    for _, r in g.iterrows():
+        for l in _linien_von(r.get("Linie")):
+            gehalten[l] += float(r[SPALTE_GEHALTEN])
+            daneben[l] += float(r[SPALTE_DANEBEN])
+
+    zeilen = []
+    for l in LINIEN:
+        fuer = float(cf.get(l, 0))
+        gegen = (gegentore[l] + gehalten[l] + float(geblockt.get(l, 0)) + daneben[l])
+        if fuer + gegen <= 0:
+            continue
+        zeilen.append({"Linie_Label": f"Linie {l}", "CF": fuer, "CA": gegen,
+                       "Gegentore": gegentore[l], "gehalten": gehalten[l],
+                       "geblockt": float(geblockt.get(l, 0)), "daneben": daneben[l],
+                       "CF%": 100 * fuer / (fuer + gegen)})
+
+    team_cf = float(feld[SPALTE_SCHUESSE].sum())
+    # fuers Team alle Paraden, nicht nur die einer Linie zugeordneten
+    paraden = float(nur_torhueter(d)[SPALTE_BLOCK].sum())
+    team_ca = (anzahl_gegentore + paraden + float(feld[SPALTE_BLOCK].sum())
+               + float(g[SPALTE_DANEBEN].sum()))
+    team = {"CF": team_cf, "CA": team_ca,
+            "CF%": 100 * team_cf / (team_cf + team_ca) if team_cf + team_ca else 0}
+    return pd.DataFrame(zeilen), team, len(ids)
+
+
+def _corsi_grundlinie(fig, hoechster):
+    """Die 50-Prozent-Marke: darunter hatte der Gegner mehr Abschluesse."""
+    fig.add_hline(y=50, line_dash="dot", line_width=1,
+                  line_color=FARBEN["gedaempft"])
+    fig.update_yaxes(range=[0, max(100, hoechster + 12)], ticksuffix=" %",
+                     title_text="Anteil der Abschlussversuche")
+    return fig
+
+
+def plot_corsi_linien(df_in, tore_zeilen,
+                      titel="Abschlussversuche"):
+    """Je Linie ihr Anteil an allen Abschlussversuchen, waehrend sie spielte."""
+    je_linie, _team, _spiele_anz = corsi_zahlen(df_in, tore_zeilen)
+    if je_linie.empty:
+        return None
+    je_linie = je_linie.sort_values("Linie_Label")
+    # gruen unsere Versuche, rot die des Gegners - dieselbe Farbgebung wie
+    # in der Teamkarte, dort steht sie in der Legende
+    je_linie["Label"] = [
+        f"{q:.0f} %<br><span style='font-size:12px'>"
+        f"<span style='color:{FARBEN['gut']}'>{f:.0f}</span> : "
+        f"<span style='color:{FARBEN['schlecht']}'>{g:.0f}</span></span>"
+        for q, f, g in zip(je_linie["CF%"], je_linie["CF"], je_linie["CA"])]
+    fig = px.bar(je_linie, x="Linie_Label", y="CF%", text="Label",
+                 title=titel,
+                 color="Linie_Label", color_discrete_map=LINIEN_FARBEN,
+                 category_orders={"Linie_Label": list(LINIEN_FARBEN)})
+    fig.update_traces(textposition="outside", textangle=0, cliponaxis=False)
+    fig.update_layout(showlegend=False)
+    fig = _style_plot(fig, tickangle=0, textfix=False)
+    fig = _corsi_grundlinie(fig, float(je_linie["CF%"].max()))
+    return _zahlen_legende(fig, "Versuche von uns", "vom Gegner")
+
+
+def plot_gegner_trefferquote(df_in, tore_zeilen,
+                             titel="Trefferquote des Gegners je Linie"):
+    """Was der Gegner aus seinen Torschuessen macht, waehrend die Linie spielt.
+
+    Hier ist wenig gut: der Balken ist der Anteil der gegnerischen Schuesse
+    aufs Tor, der auch drin war. Darunter stehen die Zahlen dahinter, gruen
+    die Paraden, rot die Gegentore. Zusammen mit den Abschlussversuchen
+    trennt das die Menge der zugelassenen Chancen von ihrer Gefaehrlichkeit:
+    eine Linie kann wenig zulassen und trotzdem viele Gegentore kassieren.
+    """
+    je_linie, _team, _spiele_anz = corsi_zahlen(df_in, tore_zeilen)
+    if je_linie.empty:
+        return None
+    d = je_linie.copy()
+    d["aufs Tor"] = d["Gegentore"] + d["gehalten"]
+    d = d[d["aufs Tor"] > 0].sort_values("Linie_Label")
+    if d.empty:
+        return None
+    d["Quote"] = 100 * d["Gegentore"] / d["aufs Tor"]
+    d["Label"] = [_quote_label(q, g, t)
+                  for q, g, t in zip(d["Quote"], d["gehalten"], d["Gegentore"])]
+    fig = px.bar(d, x="Linie_Label", y="Quote", text="Label", title=titel,
+                 color="Linie_Label", color_discrete_map=LINIEN_FARBEN,
+                 category_orders={"Linie_Label": list(LINIEN_FARBEN)})
+    fig.update_traces(textangle=0)
+    fig.update_layout(showlegend=False)
+    fig = _style_plot(fig, tickangle=0)
+    fig.update_yaxes(ticksuffix=" %")
+    return _zahlen_legende(fig, "Paraden", "Gegentore")
+
+
+def plot_corsi_team(df_in, tore_zeilen, spiele,
+                    titel="Abschlussversuche"):
+    """Je Spiel unsere Versuche gegen seine, mit dem Anteil darunter."""
+    if spiele is None or spiele.empty:
+        return None
+    zeilen = []
+    for mid, label in _spielfolge(spiele):
+        _je_linie, team, anzahl = corsi_zahlen(
+            df_in[df_in[MATCH_COL] == mid],
+            None if tore_zeilen is None else tore_zeilen[tore_zeilen[MATCH_COL] == mid])
+        if not anzahl:
+            continue
+        zeilen.append({"Spiel": label, **team})
+    if not zeilen:
+        return None
+    daten = pd.DataFrame(zeilen)
+
+    def zeile(r, seite, wert, anteil):
+        return {"Spiel": r["Spiel"], "Seite": seite, "Versuche": r[wert],
+                "Label": (f"{r[wert]:.0f}<br><span style='font-size:12px'>"
+                          f"{anteil:.0f} %</span>")}
+
+    lang = pd.DataFrame(
+        [zeile(r, "wir", "CF", r["CF%"]) for _, r in daten.iterrows()]
+        + [zeile(r, "Gegner", "CA", 100 - r["CF%"]) for _, r in daten.iterrows()])
+    fig = px.bar(lang, x="Spiel", y="Versuche", color="Seite", barmode="group",
+                 title=titel, text="Label",
+                 category_orders={"Spiel": list(daten["Spiel"]),
+                                  "Seite": ["wir", "Gegner"]},
+                 color_discrete_map={"wir": FARBEN["gut"],
+                                     "Gegner": FARBEN["schlecht"]})
+    fig.update_traces(textposition="outside", textangle=0, cliponaxis=False)
+    fig.update_layout(legend_title_text="")
+    fig = _style_plot(fig, textfix=False)
+    # Beschriftung in der Farbe ihres Balkens - wie bei der Torschussquote
+    for spur in fig.data:
+        spur.update(outsidetextfont=dict(
+            color=FARBEN["gut"] if spur.name == "wir" else FARBEN["schlecht"]))
+    fig.update_layout(bargap=0.3, bargroupgap=0.18,
+                      legend=dict(orientation="h", yanchor="bottom", y=1.0,
+                                  xanchor="right", x=1))
+    hoch = float(lang["Versuche"].max())
+    fig.update_yaxes(range=[0, hoch * 1.3], title_text="Abschlussversuche")
+    return fig
+
+
+
 def plot_punkte_teppich(df_in, spiele, titel="Punkteverlauf"):
     """Je Spieler eine Zeile, je Spiel ein Feld: Punkte an diesem Abend.
 
@@ -1794,7 +2284,7 @@ def spiel_kennzahlen(df_in, spiele):
             or not noetig.issubset(set(df_in.columns))):
         return pd.DataFrame()
     zeilen = []
-    for _, spiel in spiele.iterrows():
+    for _, spiel in chronologisch(spiele).iterrows():
         mid = spiel.get(MATCH_COL)
         d = df_in[df_in[MATCH_COL] == mid]
         if d.empty:
@@ -1873,6 +2363,10 @@ def plot_torschuesse(df_in, spiele, titel="Torschussquote"):
 #                    Tor gegangen)                                     = 0.16
 #   Balleroberung    0.21 / 3   Annahme des Trainers, nicht gemessen:
 #                    jede dritte Balleroberung wird zu einem Schuss     = 0.07
+#   Ballverlust      spiegelbildlich zur Balleroberung                  = -0.07
+#                    Streng gerechnet waere es -0.08, weil der Gegner
+#                    etwas besser verwertet als wir (31.9 % zu 28.7 %);
+#                    die Symmetrie ist den Unterschied nicht wert.
 # Unveraendert bei Doms Werten, weil dort unsere Zahlen passen: Assist 0.70
 # (0.71 Assists je Tor bei uns, 0.67 in der NHL), Plus/Minus +-0.15 (der Term
 # wiegt bei uns 61 % des Tor-Terms, in der NHL 74 %) und Strafe -0.15 (unsere
@@ -1880,7 +2374,8 @@ def plot_torschuesse(df_in, spiele, titel="Torschussquote"):
 # Das Bully (+-0.01 bei Dom) bleibt auf Wunsch des Trainers draussen.
 GAME_SCORE_GEWICHTE = {
     "T": 0.75, "A": 0.70, "Schüsse aufs Tor": 0.21, SPALTE_BLOCK: 0.16,
-    SPALTE_BALLEROBERUNG: 0.07, "Strafen": -0.15, "Plus": 0.15, "Minus": -0.15,
+    SPALTE_BALLEROBERUNG: 0.07, SPALTE_BALLVERLUST: -0.07, "Strafen": -0.15,
+    "Plus": 0.15, "Minus": -0.15,
 }
 
 
@@ -1906,8 +2401,8 @@ def game_score(df_in):
 
 def plot_game_score(df_in,
                     titel="Game Score (Tor 0.75 · Assist 0.70 · Torschuss 0.21 · "
-                          "Block 0.16 · Balleroberung 0.07 · Plus 0.15 · "
-                          "Minus −0.15 · Strafe −0.15)"):
+                          "Block 0.16 · Balleroberung 0.07 · Ballverlust −0.07 · "
+                          "Plus 0.15 · Minus −0.15 · Strafe −0.15)"):
     tabelle = game_score(df_in)
     if tabelle.empty or float(tabelle["GameScore"].abs().max()) == 0:
         return None
@@ -1980,6 +2475,11 @@ def tab_team(df_in, gegentore=None, situationen=None, spiele=None, tore_zeilen=N
     torzeiten = plot_tore_minuten(tore_zeilen)
     if torzeiten is not None:
         eintraege.append(_eintrag(torzeiten))
+    # erst woher unsere Tore kommen, direkt darunter die Gegentore
+    for art in ("Tor", "Gegentor"):
+        ursachen = plot_kategorien(tore_zeilen, art=art)
+        if ursachen is not None:
+            eintraege.append(_eintrag(ursachen, breit=True))
     # Verlauf, Reaktion und Spielstand - alles aus den Torzeiten. Verlauf,
     # Spielstand und Torschussquote gehen auch fuer ein einzelnes Spiel,
     # die Reaktion braucht mehrere.
@@ -1991,7 +2491,8 @@ def tab_team(df_in, gegentore=None, situationen=None, spiele=None, tore_zeilen=N
     # (plot_spielverlauf(tore_zeilen, spiele), False) einfuegen.
     for fig, breit in ((plot_spielstand(tore_zeilen, spiele), True),
                        (plot_reaktion(paar_zeilen), True),
-                       (plot_torschuesse(df_in, spiele), True)):
+                       (plot_torschuesse(df_in, spiele), True),
+                       (plot_corsi_team(df_in, tore_zeilen, spiele), True)):
         if fig is not None:
             eintraege.append(_eintrag(fig, breit=breit))
     # Die beiden Punkteverlaeufe sind vorerst ausgeblendet (Wunsch vom
@@ -2119,7 +2620,8 @@ def tab_tore(zeilen, spiel_namen=None):
                 f"<div class='tor-zeile {'tor' if ist_tor else 'gegentor'}'>"
                 f"<span class='tor-nr'>{nr}</span>"
                 f"<span class='tor-zeit'>{_zeit_text(r)}</span>"
-                f"<span class='tor-wer'>{_torschuetze(r)}</span></div>",
+                f"<span class='tor-wer'>{_torschuetze(r)}</span>"
+                f"<span class='tor-linie rechts'>{_linie_text(r)}</span></div>",
                 unsafe_allow_html=True,
             )
         with rechts:

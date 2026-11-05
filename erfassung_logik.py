@@ -57,6 +57,7 @@ BLATT_SPALTEN = [
     ("Schüsse", "Schuss"),
     ("Schüsse aufs Tor", "Schuss a.T."),
     ("Balleroberung", "Baller."),
+    ("Ballverlust", "Ballverl."),
     ("Powerplay-Plus", "PP +"),
     ("Powerplay-Minus", "PP −"),
     ("Boxplay-Plus", "BP +"),
@@ -72,7 +73,8 @@ WYGO_SPALTEN = ["Saison", "Format", "Team", "Gegner", "Tore Wygorazzi", "Tore Ge
 SPIELER_SPALTEN = ["Match_Id", "Gespielt", "Name", "T", "A", "Plus", "Minus", "Strafen",
                    "Bully-Plus", "Bully-Minus", "Linie", "Boxplay-Plus", "Boxplay-Minus",
                    "Powerplay-Plus", "Powerplay-Minus", "Linie-Plus", "Linie-Minus",
-                   "Block", "Schüsse", "Balleroberung", "Schüsse aufs Tor"]
+                   "Block", "Schüsse", "Balleroberung", "Schüsse aufs Tor",
+                   "Ballverlust"]
 
 
 def saison_datei(saison):
