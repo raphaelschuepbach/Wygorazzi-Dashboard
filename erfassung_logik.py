@@ -7,12 +7,20 @@ des Papierblatts; hier wird daraus die CSV-Zeile gebaut und gegengeprueft.
 import glob
 import json
 import os
+import shutil
+import subprocess
+import uuid
 
 import pandas as pd
 
 PROJEKT = os.path.dirname(os.path.abspath(__file__))
 WYGO_CSV = os.path.join(PROJEKT, "Statistik_Wygo.csv")
+TORE_CSV = os.path.join(PROJEKT, "Tore.csv")
+GEGNER_CSV = os.path.join(PROJEKT, "Gegner_Abschluesse.csv")
 LAUFEND = os.path.join(PROJEKT, "erfassung_laufend")
+# Hochgeladene Torclips warten hier, bis das Blatt uebernommen wird. Erst
+# dann ist die Match-Id endgueltig und sie wandern in den Saisonordner.
+CLIPS = os.path.join(LAUFEND, "clips")
 
 # ---------------------------------------------------------------------------
 # Kader. Neue Spieler kommen NUR hier dazu, nicht ueber die Oberflaeche.
@@ -76,6 +84,44 @@ SPIELER_SPALTEN = ["Match_Id", "Gespielt", "Name", "T", "A", "Plus", "Minus", "S
                    "Block", "Schüsse", "Balleroberung", "Schüsse aufs Tor",
                    "Ballverlust"]
 
+# Eine Zeile je Tor und Gegentor - daraus baut das Dashboard den Spielverlauf,
+# die Torkategorien, die Assist-Paare und die Clips zum Anschauen.
+# "Sekunde" ist die Spieluhr innerhalb der Halbzeit, "Videozeit" die Stelle
+# im Spielvideo. Beides wird gebraucht: die Uhr fuer die Statistik, die
+# Videozeit zum Schneiden der Ausschnitte.
+TORE_SPALTEN = ["Match_Id", "Nr", "Halbzeit", "Zeit", "Sekunde", "Art", "Spieler",
+                "Assist", "Linie", "Kategorie", "Datei", "Video", "Videozeit"]
+
+# Ein Video je Spiel, damit sich die Ausschnitte spaeter daraus schneiden
+# lassen. Eine eigene kleine Datei, damit die Kopfzeilen der gewachsenen
+# Tabellen unangetastet bleiben.
+VIDEOS_CSV = os.path.join(PROJEKT, "Spielvideos.csv")
+VIDEO_SPALTEN = ["Match_Id", "Datei"]
+
+# Die Videozeit wird sekundengenau angegeben. Sie ist die Mitte des
+# Ausschnitts, darum lohnt sich die Genauigkeit: eine Sekunde daneben
+# verschiebt das Tor eine Sekunde aus der Mitte.
+VIDEO_SCHRITT = 1
+
+# Eine Zeile je Spiel und Linie: was der Gegner abgeschlossen hat, waehrend
+# diese Linie auf dem Feld stand. Gegentore und von uns geblockte Versuche
+# gehoeren NICHT hier hinein - die stehen in Tore.csv und in der Spalte
+# "Block"; zusammen ergibt das Corsi gegen.
+ABSCHLUSS_ARTEN = ["Gegner aufs Tor gehalten", "Gegner daneben"]
+GEGNER_SPALTEN = ["Match_Id", "Linie"] + ABSCHLUSS_ARTEN
+
+# Zwei getrennte Listen: ein eigenes Tor faellt anders als ein Gegentor.
+KATEGORIEN = {
+    "Tor": ["Schuss eigene Hälfte", "Schuss gegner Hälfte", "Freistoss", "Powerplay",
+            "Ballgewinn Konter", "Zuteilungsfehler Gegner",
+            "Gegner Überlaufen eigene Hälfte", "Gegner Überlaufen gegner Hälfte"],
+    "Gegentor": ["Nicht geblockt eigene Hälfte", "Nicht geblockt gegnerische Hälfte",
+                 "Freistoss", "Boxplay", "Ballverlust Konter", "Zuteilungsfehler",
+                 "Überlaufen eigene Hälfte", "Überlaufen gegnerische Hälfte"],
+}
+HALBZEIT_MINUTEN = 20
+MAX_MINUTE = 25        # etwas Luft ueber die regulaere Halbzeit hinaus
+
 
 def saison_datei(saison):
     """Spieler_Statistik_25_26.csv aus der Saison '25/26'."""
@@ -90,6 +136,85 @@ def neue_zeile(rolle="Ersatz"):
 def leeres_blatt():
     """Alle Zellen auf null, Rollen aus der Vorgabe."""
     return {name: neue_zeile(rolle) for name, rolle in KADER_VORGABE}
+
+
+# ------------------------------------------------------ Tore und Abschluesse
+
+def zeit_text(sekunde):
+    return f"{int(sekunde) // 60}:{int(sekunde) % 60:02d}"
+
+
+def videozeit_text(sekunde):
+    """Videos laufen ueber eine Stunde - darum mit Stundenangabe."""
+    if sekunde in ("", None):
+        return "—"
+    s = int(sekunde)
+    return (f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}" if s >= 3600
+            else f"{s // 60}:{s % 60:02d}")
+
+
+def neues_tor(art, spieler="", linie=""):
+    """Ein Toreintrag, wie ihn Tore.csv braucht - erst nur mit dem, was der
+    Klick aufs Blatt schon weiss. Der Rest wird unten am Blatt nachgetragen.
+
+    Die Kennung bleibt dem Eintrag erhalten, auch ueber ein Neuladen hinweg.
+    Daran haengen die Eingabefelder: ohne sie wuerden sie beim Loeschen eines
+    Tors auf den Nachbarn rutschen und dessen Werte zeigen.
+    """
+    return {"id": uuid.uuid4().hex[:8], "art": art, "spieler": spieler,
+            "assist": "", "hz": 1, "sek": 0, "linie": str(linie),
+            "kategorie": "", "datei": "", "video": "", "videozeit": ""}
+
+
+def leere_abschluesse():
+    return {l: {a: 0 for a in ABSCHLUSS_ARTEN} for l in ("1", "2", "3")}
+
+
+def tore_geordnet(tore):
+    """Chronologisch - so sind sie gefallen, und so nummeriert sie das
+    Dashboard, das daraus den Spielverlauf zeichnet."""
+    return sorted(tore, key=lambda t: (int(t["hz"]), int(t["sek"])))
+
+
+def tore_zeilen(match_id, tore):
+    """Die Zeilen fuer Tore.csv. Nr laeuft je Spiel ueber Tore und Gegentore
+    gemeinsam und in der Reihenfolge der Uhr."""
+    zeilen = []
+    for nr, t in enumerate(tore_geordnet(tore), 1):
+        zeilen.append([match_id, nr, t["hz"], zeit_text(t["sek"]), int(t["sek"]),
+                       t["art"], t["spieler"], t["assist"], t["linie"],
+                       t["kategorie"], t["datei"], t["video"], t["videozeit"]])
+    return zeilen
+
+
+def gegner_zeilen(match_id, abschluesse):
+    """Die Zeilen fuer Gegner_Abschluesse.csv - Linien ohne jeden Abschluss
+    bleiben weg, sonst steht die Datei voller Nullen."""
+    return [[match_id, linie] + [werte[a] for a in ABSCHLUSS_ARTEN]
+            for linie, werte in sorted(abschluesse.items())
+            if any(werte[a] for a in ABSCHLUSS_ARTEN)]
+
+
+def clip_namen(tore):
+    """Zu jedem Tor mit Clip der endgueltige Dateiname, in Spielreihenfolge.
+
+    Schema wie bei den bisher von Hand geschnittenen Clips: <Schuetze><k>,
+    bei Gegentoren Gegentor<k>, wobei k je Art durchzaehlt. Erst beim
+    Uebernehmen vergeben - vorher kann sich die Reihenfolge noch aendern.
+    """
+    zaehler, raus = {}, []
+    for t in tore_geordnet(tore):
+        # durchgezaehlt wird ueber alle Tore einer Art, nicht nur ueber die
+        # mit Clip - sonst passen die Nummern nicht zu den schon vorhandenen
+        zaehler[t["art"]] = zaehler.get(t["art"], 0) + 1
+        if not t.get("datei"):
+            continue
+        stamm = (t["spieler"].strip() if t["art"] == "Tor" and t["spieler"].strip()
+                 else "Gegentor")
+        stamm = "".join(z for z in stamm if z.isalnum() or z in " .-_") or "Tor"
+        endung = os.path.splitext(t["datei"])[1] or ".mp4"
+        raus.append((t, f"{stamm}{zaehler[t['art']]}{endung}"))
+    return raus
 
 
 def bekannte_spieler():
@@ -135,11 +260,13 @@ def reihenfolge(blatt):
 AKTUELL = os.path.join(LAUFEND, "aktuell.json")
 
 
-def zustand_sichern(kopf, blatt):
+def zustand_sichern(kopf, blatt, tore=None, abschluesse=None):
     """Nach jeder Aenderung auf die Platte - ueberlebt Neuladen und Neustart."""
     os.makedirs(LAUFEND, exist_ok=True)
     with open(AKTUELL, "w", encoding="utf-8") as f:
-        json.dump({"kopf": kopf, "blatt": blatt}, f, ensure_ascii=False, indent=1)
+        json.dump({"kopf": kopf, "blatt": blatt, "tore": tore or [],
+                   "abschluesse": abschluesse or leere_abschluesse()},
+                  f, ensure_ascii=False, indent=1)
 
 
 def zustand_lesen():
@@ -162,6 +289,15 @@ def zustand_lesen():
             z.setdefault(sp, 0)
         if z.get("rolle") not in ROLLEN:
             z["rolle"] = NICHT
+    # Entwuerfe aus der Zeit vor den Toren sollen weiter aufgehen
+    stand["kopf"].setdefault("video", "")
+    stand.setdefault("tore", [])
+    for t in stand["tore"]:
+        for feld, wert in neues_tor("Tor").items():
+            t.setdefault(feld, wert)
+    stand.setdefault("abschluesse", leere_abschluesse())
+    for linie, werte in leere_abschluesse().items():
+        stand["abschluesse"].setdefault(linie, werte)
     return stand
 
 
@@ -171,6 +307,213 @@ def zustand_loeschen():
             os.remove(pfad)
         except OSError:
             pass
+    for pfad in glob.glob(os.path.join(CLIPS, "*")):
+        try:
+            os.remove(pfad)
+        except OSError:
+            pass
+
+
+# --------------------------------------------------- Torclips zwischenlagern
+
+def clip_ablegen(name, daten):
+    """Einen hochgeladenen Clip zwischenlagern und seinen Namen liefern.
+
+    Noch nicht in den Saisonordner: solange das Blatt nicht uebernommen ist,
+    steht die Match-Id nicht fest, und ein verworfenes Blatt soll keine
+    verwaisten Dateien hinterlassen.
+    """
+    os.makedirs(CLIPS, exist_ok=True)
+    stamm, endung = os.path.splitext(os.path.basename(name))
+    ziel, i = f"{stamm}{endung}", 1
+    while os.path.exists(os.path.join(CLIPS, ziel)):
+        i += 1
+        ziel = f"{stamm}_{i}{endung}"
+    with open(os.path.join(CLIPS, ziel), "wb") as f:
+        f.write(daten)
+    return ziel
+
+
+def clip_entfernen(name):
+    try:
+        os.remove(os.path.join(CLIPS, name))
+    except OSError:
+        pass
+
+
+# ----------------------------------------------- Ausschnitte selber schneiden
+
+CLIP_DAUER = 10        # Sekunden je Ausschnitt
+
+
+def ffmpeg_pfad():
+    """Das mit imageio-ffmpeg mitgelieferte ffmpeg - es muss nichts
+    zusaetzlich installiert sein."""
+    import imageio_ffmpeg
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def clip_schneiden(video, mitte_s, ziel, dauer=CLIP_DAUER):
+    """Einen Ausschnitt um die angegebene Videosekunde herum.
+
+    Die Videozeit am Tor ist die **Mitte**: geschnitten wird fuenf Sekunden
+    davor bis fuenf danach. Am Anfang des Videos wird nach vorne geschoben,
+    damit der Ausschnitt seine volle Laenge behaelt.
+
+    Neu kodiert statt nur kopiert: ein Kopierschnitt beginnt immer erst beim
+    naechsten Schluesselbild und laege dann leicht ein, zwei Sekunden daneben.
+    """
+    start = max(0.0, float(mitte_s) - dauer / 2)
+    ordner = os.path.dirname(ziel)
+    if ordner:
+        os.makedirs(ordner, exist_ok=True)
+    befehl = [ffmpeg_pfad(), "-hide_banner", "-loglevel", "error", "-y",
+              "-ss", f"{start:.2f}", "-i", video, "-t", str(dauer),
+              "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+              "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", ziel]
+    fertig = subprocess.run(befehl, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
+    if fertig.returncode != 0 or not os.path.exists(ziel):
+        raise RuntimeError((fertig.stderr or "").strip()[-400:]
+                           or "ffmpeg hat nichts geschrieben")
+    return ziel
+
+
+def spielvideos():
+    """Match-Id -> Pfad zum Spielvideo, aus Spielvideos.csv."""
+    if not os.path.exists(VIDEOS_CSV):
+        return {}
+    d = pd.read_csv(VIDEOS_CSV, dtype=str, keep_default_na=False)
+    return {str(r["Match_Id"]).strip(): str(r["Datei"]).strip().strip('"').strip()
+            for _, r in d.iterrows() if str(r["Datei"]).strip()}
+
+
+def saison_von(match_id):
+    """Die Saison eines erfassten Spiels - sie bestimmt den Videoordner."""
+    w = pd.read_csv(WYGO_CSV, dtype=str, keep_default_na=False)
+    w.columns = [c.strip() for c in w.columns]
+    treffer = w[w["Match_Id"].str.strip() == str(match_id)]
+    return str(treffer["Saison"].iat[0]).strip() if len(treffer) else ""
+
+
+def tore_eines_spiels(match_id):
+    """Die Tore eines schon erfassten Spiels, chronologisch, als Liste von
+    Zeilen-Woerterbuechern mit der Zeilennummer in Tore.csv."""
+    if not os.path.exists(TORE_CSV):
+        return []
+    d = pd.read_csv(TORE_CSV, dtype=str, keep_default_na=False)
+    d.columns = [c.strip() for c in d.columns]
+    teil = d[d["Match_Id"].str.strip() == str(match_id)].copy()
+    if teil.empty:
+        return []
+    teil["_nr"] = pd.to_numeric(teil["Nr"], errors="coerce").fillna(0)
+    teil = teil.sort_values("_nr")
+    return [{"zeile": i, **{s: r[s] for s in TORE_SPALTEN if s in r}}
+            for i, r in zip(teil.index, teil.to_dict("records"))]
+
+
+def tore_datei_setzen(aenderungen):
+    """Die Spalte Datei fuer einzelne Zeilen von Tore.csv neu setzen.
+
+    Ueber das csv-Modul gelesen und geschrieben, damit Trennzeichen,
+    Anfuehrungszeichen und Zeilenenden so bleiben, wie die Datei sie haelt -
+    sonst sieht jede kleine Aenderung aus wie eine neue Datei.
+    """
+    import csv
+    ende = zeilenende(TORE_CSV)
+    with open(TORE_CSV, encoding="utf-8", newline="") as f:
+        zeilen = list(csv.reader(f))
+    kopf = zeilen[0]
+    spalte = kopf.index("Datei")
+    for nr, wert in aenderungen.items():
+        zeilen[nr + 1][spalte] = wert       # +1 wegen der Kopfzeile
+    with open(TORE_CSV, "w", encoding="utf-8", newline="") as f:
+        csv.writer(f, lineterminator=ende).writerows(zeilen)
+
+
+def clips_nachschneiden(match_id, melden=None):
+    """Fehlende Ausschnitte eines schon erfassten Spiels schneiden.
+
+    Anders als beim laufenden Blatt landen sie gleich im Saisonordner - die
+    Match-Id steht ja laengst fest. Geschnitten wird nur, wo eine Videozeit
+    steht und noch kein Clip haengt.
+    """
+    video = spielvideos().get(str(match_id), "")
+    if not video or not os.path.isfile(video):
+        raise ValueError(f"Für Spiel {match_id} ist kein vorhandenes Video hinterlegt.")
+    alle = tore_eines_spiels(match_id)
+    if not alle:
+        raise ValueError(f"Für Spiel {match_id} stehen keine Tore in Tore.csv.")
+    ordner = os.path.join(video_ordner(saison_von(match_id)), str(match_id))
+    os.makedirs(ordner, exist_ok=True)
+
+    zaehler, aenderungen, fehler = {}, {}, []
+    for t in alle:
+        art = t["Art"].strip()
+        zaehler[art] = zaehler.get(art, 0) + 1
+        if t["Datei"].strip() or not t["Videozeit"].strip():
+            continue
+        stamm = t["Spieler"].strip() if art == "Tor" and t["Spieler"].strip() \
+            else "Gegentor"
+        stamm = "".join(z for z in stamm if z.isalnum() or z in " .-_") or "Tor"
+        name, i = f"{stamm}{zaehler[art]}.mp4", 1
+        while os.path.exists(os.path.join(ordner, name)):
+            i += 1
+            name = f"{stamm}{zaehler[art]}_{i}.mp4"
+        if melden:
+            melden(t, name)
+        try:
+            clip_schneiden(video, int(t["Videozeit"]), os.path.join(ordner, name))
+            aenderungen[t["zeile"]] = f"{match_id}/{name}"
+        except Exception as fehlgeschlagen:
+            fehler.append(f"Nr {t['Nr']} ({art} {t['Zeit']}): {fehlgeschlagen}")
+    if aenderungen:
+        tore_datei_setzen(aenderungen)
+    return aenderungen, fehler
+
+
+def clip_aus_video(video, tor, dauer=CLIP_DAUER):
+    """Den Ausschnitt zu einem Tor ins Zwischenlager schneiden.
+
+    Der Name hier ist vorlaeufig - den endgueltigen bekommt die Datei erst
+    beim Uebernehmen, wenn die Reihenfolge der Tore feststeht.
+    """
+    if not str(tor.get("videozeit", "")).strip():
+        raise ValueError("Für dieses Tor ist keine Videozeit eingetragen.")
+    os.makedirs(CLIPS, exist_ok=True)
+    stamm = f"{tor['art']}_{tor['videozeit']}s"
+    ziel, i = f"{stamm}.mp4", 1
+    while os.path.exists(os.path.join(CLIPS, ziel)):
+        i += 1
+        ziel = f"{stamm}_{i}.mp4"
+    clip_schneiden(video, int(tor["videozeit"]), os.path.join(CLIPS, ziel), dauer)
+    return ziel
+
+
+def video_ordner(saison):
+    """'26/27' -> 'tore_26-27' - derselbe Name, den das Dashboard sucht."""
+    return os.path.join(PROJEKT, "tore_" + str(saison).strip().replace("/", "-"))
+
+
+def clips_uebernehmen(saison, match_id, tore):
+    """Die zwischengelagerten Clips an ihren Platz legen.
+
+    Setzt in jedem Toreintrag "datei" auf den Eintrag, den Tore.csv braucht -
+    <Match-Id>/<Name>, immer mit Schraegstrich, so sucht ihn das Dashboard.
+    """
+    ordner = os.path.join(video_ordner(saison), str(match_id))
+    for tor, name in clip_namen(tore):
+        quelle = os.path.join(CLIPS, tor["datei"])
+        if not os.path.exists(quelle):
+            continue
+        os.makedirs(ordner, exist_ok=True)
+        stamm, endung = os.path.splitext(name)
+        i = 1
+        while os.path.exists(os.path.join(ordner, name)):
+            i += 1
+            name = f"{stamm}_{i}{endung}"
+        shutil.move(quelle, os.path.join(ordner, name))
+        tor["datei"] = f"{match_id}/{name}"
 
 
 def resultat(blatt):
@@ -244,6 +587,65 @@ def wygo_zeile(kopf, blatt, datum_text):
             kopf["pp_plus"], kopf["pp_minus"], kopf["bp_plus"], kopf["bp_minus"]]
 
 
+def tor_kontrollen(blatt, tore, abschluesse, video=""):
+    """Querproben fuer Tore.csv und Gegner_Abschluesse.csv.
+
+    Gibt eine Liste (ok, Text) zurueck - dieselbe Form wie kontrollen().
+    """
+    eigene, gegen = resultat(blatt)
+    raus = []
+
+    def pruefe(text, ok, hinweis=""):
+        raus.append((bool(ok), text if ok else f"{text} — {hinweis}"))
+
+    erzielt = sum(1 for t in tore if t["art"] == "Tor")
+    kassiert = sum(1 for t in tore if t["art"] == "Gegentor")
+    pruefe(f"{eigene} Tore erfasst", erzielt == eigene, f"erfasst sind {erzielt}")
+    pruefe(f"{gegen} Gegentore erfasst", kassiert == gegen, f"erfasst sind {kassiert}")
+
+    ohne_zeit = [t for t in tore if int(t["sek"]) <= 0]
+    pruefe("Jedes Tor hat eine Zeit", not ohne_zeit,
+           f"{len(ohne_zeit)} stehen noch auf 0:00")
+    doppelt = len(tore) - len({(t["hz"], t["sek"], t["art"]) for t in tore})
+    pruefe("Keine zwei Tore zur selben Zeit", doppelt == 0, f"{doppelt} doppelt")
+    ohne_kat = [t for t in tore if not t["kategorie"].strip()]
+    pruefe("Jedes Tor hat eine Kategorie", not ohne_kat,
+           f"{len(ohne_kat)} ohne — das Dashboard zeigt sie dann unter 'ohne Angabe'")
+
+    # Die Videozeit nur einfordern, wenn ueberhaupt ein Spielvideo hinterlegt ist
+    if str(video).strip():
+        ohne_vid = [t for t in tore if str(t.get("videozeit", "")).strip() == ""]
+        pruefe("Jedes Tor hat eine Videozeit", not ohne_vid,
+               f"{len(ohne_vid)} ohne — daraus lässt sich später kein Ausschnitt "
+               f"schneiden")
+        zeiten = sorted(int(t["videozeit"]) for t in tore
+                        if str(t.get("videozeit", "")).strip() != "")
+        pruefe("Videozeiten laufen in derselben Reihenfolge wie die Uhr",
+               zeiten == [int(t["videozeit"]) for t in tore_geordnet(tore)
+                          if str(t.get("videozeit", "")).strip() != ""],
+               "ein Tor liegt im Video vor einem, das laut Uhr früher fiel")
+
+    # Die Schuetzen muessen zu den Strichen auf dem Blatt passen
+    je_spieler = {}
+    for t in tore:
+        if t["art"] == "Tor":
+            je_spieler[t["spieler"]] = je_spieler.get(t["spieler"], 0) + 1
+    falsch = [f"{n}: Blatt {z['T']}, erfasst {je_spieler.get(n, 0)}"
+              for n, z in blatt.items()
+              if spielt(z["rolle"]) and z["T"] != je_spieler.get(n, 0)]
+    pruefe("Tore je Schütze passen zum Blatt", not falsch, "; ".join(falsch))
+
+    # Die gehaltenen Schuesse zusammen = Paraden des Torhueters. Faellt die
+    # Summe kleiner aus, fehlen Schuesse aus Unterzahl - das ist in Ordnung.
+    hueter = [z for z in blatt.values() if z["rolle"] == "T"]
+    paraden = hueter[0]["Block"] if hueter else 0
+    gehalten = sum(w[ABSCHLUSS_ARTEN[0]] for w in abschluesse.values())
+    pruefe(f"Gehaltene Gegnerschüsse ≤ {paraden} Paraden des Torhüters",
+           gehalten <= paraden,
+           f"erfasst sind {gehalten} — Gegentore gehören nicht in diesen Zähler")
+    return raus
+
+
 def kontrollen(kopf, blatt, tabelle):
     """Die Querproben vom Papierblatt - jetzt vor dem Schreiben."""
     eigene, gegen = resultat(blatt)
@@ -297,10 +699,19 @@ def zeilenende(pfad):
         return "\r\n" if b"\r\n" in f.read() else "\n"
 
 
+def _feld(wert):
+    """Ein Wert fuer die CSV. Kategorien und Videoadressen duerfen ein Komma
+    enthalten - dann gehoert das Feld in Anfuehrungszeichen."""
+    text = str(wert)
+    if any(z in text for z in ',"\n\r'):
+        return '"' + text.replace('"', '""') + '"'
+    return text
+
+
 def anhaengen(pfad, zeilen, spalten):
     """Zeilen an eine CSV anhaengen, ohne den bestehenden Inhalt anzufassen."""
     ende = zeilenende(pfad) if os.path.exists(pfad) else "\r\n"
-    neu = "".join(",".join(str(v) for v in z) + ende for z in zeilen)
+    neu = "".join(",".join(_feld(v) for v in z) + ende for z in zeilen)
     if os.path.exists(pfad):
         with open(pfad, encoding="utf-8", newline="") as f:
             alt = f.read()
@@ -314,9 +725,23 @@ def anhaengen(pfad, zeilen, spalten):
         f.write(inhalt)
 
 
-def schreiben(kopf, blatt, datum_text, linien=None):
-    """Beide CSVs ergaenzen. Wirft, wenn eine Kopfzeile nicht passt."""
+def schreiben(kopf, blatt, datum_text, linien=None, tore=None, abschluesse=None):
+    """Alle vier CSVs ergaenzen. Wirft, wenn eine Kopfzeile nicht passt.
+
+    Reihenfolge mit Absicht: zuerst die Clips an ihren Platz, denn erst
+    dadurch stehen die Dateinamen fuer Tore.csv fest.
+    """
     tabelle = auswertung(blatt, kopf["match_id"], linien)
+    if tore:
+        clips_uebernehmen(kopf["saison"], kopf["match_id"], tore)
     anhaengen(saison_datei(kopf["saison"]), tabelle.values.tolist(), SPIELER_SPALTEN)
     anhaengen(WYGO_CSV, [wygo_zeile(kopf, blatt, datum_text)], WYGO_SPALTEN)
+    if tore:
+        anhaengen(TORE_CSV, tore_zeilen(kopf["match_id"], tore), TORE_SPALTEN)
+    zeilen = gegner_zeilen(kopf["match_id"], abschluesse or {})
+    if zeilen:
+        anhaengen(GEGNER_CSV, zeilen, GEGNER_SPALTEN)
+    if str(kopf.get("video", "")).strip():
+        anhaengen(VIDEOS_CSV, [[kopf["match_id"], kopf["video"].strip()]],
+                  VIDEO_SPALTEN)
     return tabelle

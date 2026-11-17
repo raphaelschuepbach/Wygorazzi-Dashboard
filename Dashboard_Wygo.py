@@ -303,7 +303,7 @@ else:
                                  "Art", "Spieler", "Datei", "Video"])
 
 # Eine Zeile je Spiel und Linie: was der Gegner abgeschlossen hat, waehrend
-# diese Linie auf dem Feld war. Wird mit Erfassung_Zusatz.py gefuellt.
+# diese Linie auf dem Feld war. Wird mit Erfassung_Wygo.py gefuellt.
 GEGNER_DATEI = "Gegner_Abschluesse.csv"
 if os.path.exists(GEGNER_DATEI):
     gegner_ab = pd.read_csv(GEGNER_DATEI)
@@ -1806,11 +1806,11 @@ def _spiel_dauer(folge):
     return max(float(SPIEL_MINUTEN), max((m for m, _, _ in folge), default=0.0))
 
 
-REAKTION_FENSTER = 2        # Minuten
+REAKTION_FENSTER = 3        # Minuten
 
 
 def plot_reaktion(tore_zeilen):
-    """Was in den zwei Minuten nach einem Tor passiert.
+    """Was in den Minuten nach einem Tor passiert.
 
     Zwei Lagen: nach einem eigenen Tor und nach einem Gegentor. Je Lage wird
     gezaehlt, ob als naechstes ein eigenes Tor oder ein Gegentor faellt - und

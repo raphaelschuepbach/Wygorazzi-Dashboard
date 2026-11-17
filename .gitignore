@@ -2,7 +2,7 @@
 erfassung_laufend/
 __pycache__/
 
-# Sicherungskopien aus Kategorien_Tore.py
+# Sicherungskopien aus frueheren Erfassungswerkzeugen
 Tore_backup_*.csv
 Spieler_Statistik_*_backup_*.csv
 Gegner_Abschluesse_backup_*.csv

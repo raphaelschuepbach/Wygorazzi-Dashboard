@@ -9,11 +9,27 @@ Spalten des Papierblatts nebeneinander. Jede Zelle ist ein Knopf mit der Zahl
 darauf - ein Klick setzt einen Strich dazu. Der Umschalter ueber dem Blatt
 stellt auf Korrektur, dann nimmt ein Klick einen Strich weg.
 
+Unter dem Blatt steht, was das Papier nicht hergibt, das Dashboard aber
+braucht:
+
+  * **Tore.** Ein Strich in der Spalte T legt den Eintrag gleich an; dazu
+    kommen Halbzeit, Zeit, Assist, Linie, Kategorie und der Videoausschnitt.
+    Gegentore ueber den Knopf daneben. Das wird Tore.csv - daraus baut das
+    Dashboard Spielverlauf, Torkategorien, Assist-Paare und die Clips.
+    Ist oben ein Spielvideo hinterlegt, kommt je Tor die Videozeit dazu -
+    sekundengenau, denn sie ist die Mitte des Ausschnitts. Die
+    Spieluhr bleibt davon unberuehrt: sie steht bei jedem Unterbruch still,
+    das Video laeuft weiter, die beiden Zeiten driften auseinander.
+  * **Abschluesse des Gegners je Linie**, gehalten und daneben. Das wird
+    Gegner_Abschluesse.csv und ergibt zusammen mit den Gegentoren und der
+    Spalte Block das Corsi gegen.
+
 Der Kader steht in erfassung_logik.py (KADER_VORGABE) - neue Spieler werden
 dort eingetragen, nicht hier in der Oberflaeche.
 
 Nach jedem Klick wird der Stand nach erfassung_laufend/ gesichert; ein
-versehentliches Neuladen im Browser kostet also nichts.
+versehentliches Neuladen im Browser kostet also nichts. Geschrieben wird
+erst beim Uebernehmen, und zwar in alle vier CSVs auf einmal.
 """
 import datetime
 import os
@@ -26,11 +42,19 @@ import streamlit as st
 # anderen Ordner heraus gestartet wird
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from erfassung_logik import (BLATT_SPALTEN, KADER_VORGABE, ROLLEN, ROLLEN_KURZ,
-                             WYGO_CSV, WYGO_SPALTEN, auswertung, bekannte_spieler,
-                             leeres_blatt, linien_pm, neue_zeile, reihenfolge,
-                             resultat, saison_datei, schreiben, spielt, wygo_zeile,
-                             zustand_lesen, zustand_loeschen, zustand_sichern)
+from erfassung_logik import (ABSCHLUSS_ARTEN, BLATT_SPALTEN, GEGNER_SPALTEN,
+                             KADER_VORGABE, KATEGORIEN, MAX_MINUTE, ROLLEN,
+                             ROLLEN_KURZ, TORE_SPALTEN, WYGO_CSV, WYGO_SPALTEN,
+                             auswertung, bekannte_spieler, clip_ablegen,
+                             clip_entfernen, gegner_zeilen, leere_abschluesse,
+                             leeres_blatt, linien_pm, neue_zeile, neues_tor,
+                             reihenfolge, resultat, saison_datei, schreiben, spielt,
+                             tor_kontrollen, tore_geordnet, tore_zeilen,
+                             CLIP_DAUER, clip_aus_video, clips_nachschneiden,
+                             spielvideos, tore_eines_spiels, VIDEO_SCHRITT,
+                             VIDEO_SPALTEN, videozeit_text,
+                             wygo_zeile, zustand_lesen, zustand_loeschen,
+                             zustand_sichern)
 
 st.set_page_config(page_title="Match-Blatt — UHC Wygorazzi", page_icon="🏑",
                    layout="wide", initial_sidebar_state="collapsed")
@@ -106,7 +130,7 @@ def saison_liste():
 def neuer_kopf():
     return {"saison": saison_liste()[0], "format": "Meisterschaft", "gegner": "",
             "datum": datetime.date.today().isoformat(), "match_id": naechste_id(),
-            "liga_wygo": 2, "liga_gegner": 2,
+            "liga_wygo": 2, "liga_gegner": 2, "video": "",
             "pp_plus": 0, "pp_minus": 0, "bp_plus": 0, "bp_minus": 0}
 
 
@@ -117,11 +141,15 @@ if "blatt" not in st.session_state or "kopf" not in st.session_state:
     stand = zustand_lesen()
     st.session_state.setdefault("blatt", stand["blatt"] if stand else leeres_blatt())
     st.session_state.setdefault("kopf", stand["kopf"] if stand else neuer_kopf())
+    st.session_state.setdefault("tore", stand["tore"] if stand else [])
+    st.session_state.setdefault("abschluesse",
+                                stand["abschluesse"] if stand else leere_abschluesse())
 blatt, kopf = st.session_state.blatt, st.session_state.kopf
 
 
 def sichern():
-    zustand_sichern(st.session_state.kopf, st.session_state.blatt)
+    zustand_sichern(st.session_state.kopf, st.session_state.blatt,
+                    st.session_state.tore, st.session_state.abschluesse)
 
 
 # -------------------------------------------------------------------- Kopf
@@ -149,6 +177,29 @@ kopf["pp_plus"] = c.number_input("Powerplay +", 0, 50, int(kopf["pp_plus"]))
 kopf["pp_minus"] = d.number_input("Powerplay −", 0, 50, int(kopf["pp_minus"]))
 kopf["bp_plus"] = e.number_input("Boxplay +", 0, 50, int(kopf["bp_plus"]))
 kopf["bp_minus"] = f.number_input("Boxplay −", 0, 50, int(kopf["bp_minus"]))
+
+# Ein Video je Spiel. Es bleibt liegen, wo es liegt - hier steht nur der
+# Pfad. Darauf beziehen sich die Videozeiten bei den Toren weiter unten,
+# und daraus lassen sich spaeter die Ausschnitte schneiden.
+kopf["video"] = st.text_input(
+    "Spielvideo (Pfad auf diesem Rechner)", value=kopf.get("video", ""),
+    placeholder=r"C:\Users\rapha\Downloads\Video_2026-10-04_07-33-09.mp4",
+    help="Rechtsklick auf die Datei → „Als Pfad kopieren\" und hier einfügen. "
+         "Die Anführungszeichen, die Windows dabei mitgibt, dürfen stehen bleiben.")
+# Windows gibt beim "Als Pfad kopieren" Anfuehrungszeichen mit. Die hier
+# wegzunehmen ist bequemer, als sie jedes Mal von Hand zu loeschen.
+kopf["video"] = str(kopf["video"]).strip().strip('"').strip("'").strip()
+video_pfad = kopf["video"]
+video_da = bool(video_pfad) and os.path.isfile(video_pfad)
+if video_pfad and not video_da:
+    st.warning("Diese Datei finde ich nicht. Die Videozeiten lassen sich "
+               "trotzdem eintragen, nur das Nachschauen geht nicht.")
+elif video_da:
+    with st.expander(f"Spielvideo ansehen — {os.path.basename(video_pfad)}, "
+                     f"{os.path.getsize(video_pfad) / 1e9:.1f} GB"):
+        st.caption("Zum Tor spulen, die Zeit im Spieler ablesen und unten bei "
+                   "diesem Tor eintragen.")
+        st.video(video_pfad)
 
 st.divider()
 
@@ -228,7 +279,77 @@ def zellen_aendern(name, spalte):
     """Ein Klick auf die Zahl: im Zaehlmodus ein Strich dazu, sonst einer weg."""
     delta = -1 if st.session_state.get("modus", "").startswith("−") else 1
     z = st.session_state.blatt[name]
+    vorher = z[spalte]
     z[spalte] = max(0, z[spalte] + delta)
+    # Ein Strich in der Spalte T ist ein Tor - und ein Tor braucht mehr als
+    # einen Strich. Der Eintrag entsteht gleich mit, auszufuellen ist er
+    # unten am Blatt. So bleiben Blatt und Tore.csv von selbst beieinander.
+    if spalte == "T" and z[spalte] != vorher:
+        tore = st.session_state.tore
+        if delta > 0:
+            tore.append(neues_tor("Tor", name, z["rolle"] if z["rolle"] in "123" else ""))
+        else:
+            fuer_ihn = [t for t in tore if t["art"] == "Tor" and t["spieler"] == name]
+            if fuer_ihn:
+                letztes = max(fuer_ihn, key=lambda t: (int(t["hz"]), int(t["sek"])))
+                clip_entfernen(letztes["datei"])
+                tore.remove(letztes)
+    sichern()
+
+
+def gegentor_dazu():
+    st.session_state.tore.append(neues_tor("Gegentor"))
+    sichern()
+
+
+def tor_weg(kennung):
+    for t in list(st.session_state.tore):
+        if t["id"] == kennung:
+            clip_entfernen(t["datei"])
+            st.session_state.tore.remove(t)
+            # den Strich auf dem Blatt gleich mitnehmen, sonst laufen die
+            # beiden Zaehlungen auseinander
+            z = st.session_state.blatt.get(t["spieler"])
+            if t["art"] == "Tor" and z:
+                z["T"] = max(0, z["T"] - 1)
+    sichern()
+
+
+def tor_setzen(tor, feld, schluessel):
+    tor[feld] = st.session_state[schluessel]
+    sichern()
+
+
+def tor_wahl_setzen(tor, feld, schluessel):
+    """Wie tor_setzen, aber der Strich und das Leerfeld heissen beide 'nichts'."""
+    wert = st.session_state[schluessel]
+    tor[feld] = "" if wert in (None, "—") else wert
+    sichern()
+
+
+def clip_loesen(tor):
+    clip_entfernen(tor["datei"])
+    tor["datei"] = ""
+    sichern()
+
+
+def tor_zeit_setzen(tor, min_schluessel, sek_schluessel):
+    tor["sek"] = (st.session_state[min_schluessel] * 60
+                  + st.session_state[sek_schluessel])
+    sichern()
+
+
+def tor_videozeit_setzen(tor, min_schluessel, sek_schluessel):
+    """Die Stelle im Spielvideo, sekundengenau. Null heisst
+    'noch nicht eingetragen' - ein Tor in der ersten Videosekunde gibt es nicht."""
+    sek = st.session_state[min_schluessel] * 60 + st.session_state[sek_schluessel]
+    tor["videozeit"] = "" if sek <= 0 else str(sek)
+    sichern()
+
+
+def abschluss_aendern(linie, art, delta):
+    werte = st.session_state.abschluesse[linie]
+    werte[art] = max(0, werte[art] + delta)
     sichern()
 
 
@@ -330,6 +451,193 @@ with st.container(key="blattgitter"):
 
 st.divider()
 
+# ----------------------------------------------------------------- Tore
+# Ein Strich in der Spalte T legt oben schon den Eintrag an. Hier kommt
+# dazu, was Tore.csv sonst noch braucht - und was das Dashboard daraus
+# baut: Spielverlauf, Torkategorien, Assist-Paare und die Clips.
+tore = st.session_state.tore
+kader_dabei = [n for n in reihenfolge(blatt) if spielt(blatt[n]["rolle"])]
+
+
+def tor_schuetze_setzen(tor, schluessel):
+    """Schuetze wechseln - der Strich auf dem Blatt wandert mit."""
+    neu = st.session_state[schluessel]
+    alt = tor["spieler"]
+    if neu == alt:
+        return
+    if alt in st.session_state.blatt:
+        st.session_state.blatt[alt]["T"] = max(0, st.session_state.blatt[alt]["T"] - 1)
+    if neu in st.session_state.blatt:
+        st.session_state.blatt[neu]["T"] += 1
+        tor["linie"] = st.session_state.blatt[neu]["rolle"] \
+            if st.session_state.blatt[neu]["rolle"] in "123" else tor["linie"]
+    tor["spieler"] = neu
+    sichern()
+
+
+eigene, gegentore = resultat(blatt)
+kopfzeile_tore, knopf_schnitt, knopf_gegentor = st.columns([2.2, 1.4, 1.4])
+kopfzeile_tore.subheader(f"Tore &nbsp;·&nbsp; {eigene}:{gegentore}")
+
+# Alle Ausschnitte auf einen Schlag. Geschnitten wird nur, wo eine Videozeit
+# steht und noch kein Clip haengt - zweimal druecken schadet also nichts.
+offen_schnitt = [t for t in tore_geordnet(tore)
+                 if str(t.get("videozeit", "")).strip() and not t["datei"]]
+if knopf_schnitt.button(f"✂ {len(offen_schnitt)} Ausschnitte schneiden",
+                        use_container_width=True, disabled=not (video_da and offen_schnitt),
+                        help="Je Tor zehn Sekunden aus dem Spielvideo, mittig um "
+                             "die eingetragene Videozeit."):
+    fehler_beim_schneiden = []
+    balken = st.progress(0.0, text="schneide …")
+    for nr, t in enumerate(offen_schnitt, 1):
+        balken.progress((nr - 1) / len(offen_schnitt),
+                        text=f"{nr} von {len(offen_schnitt)} — "
+                             f"{t['art']} bei {videozeit_text(t['videozeit'])}")
+        try:
+            t["datei"] = clip_aus_video(video_pfad, t)
+        except Exception as fehler:
+            fehler_beim_schneiden.append(f"{t['art']} "
+                                         f"{videozeit_text(t['videozeit'])}: {fehler}")
+    balken.empty()
+    sichern()
+    for text in fehler_beim_schneiden:
+        st.error(text)
+    if not fehler_beim_schneiden:
+        st.rerun()
+
+knopf_gegentor.button("＋ Gegentor erfassen", on_click=gegentor_dazu,
+                      use_container_width=True,
+                      help="Eigene Tore entstehen von selbst, sobald du in der "
+                           "Spalte T einen Strich setzt.")
+
+if not tore:
+    st.caption("Noch kein Tor erfasst. Ein Strich in der Spalte **T** legt ein "
+               "eigenes Tor an, für ein Gegentor der Knopf oben rechts.")
+
+for t in tore_geordnet(tore):
+    k = t["id"]
+    ist_tor = t["art"] == "Tor"
+    with st.container(key=f"tor_{k}", border=True):
+        a, b, c, d, e, f = st.columns([2.4, 0.9, 0.9, 0.9, 2.2, 0.7],
+                                      vertical_alignment="bottom")
+        if ist_tor:
+            wahl = kader_dabei if t["spieler"] in kader_dabei \
+                else [t["spieler"]] + kader_dabei
+            a.selectbox("🟢 Schütze", wahl, index=wahl.index(t["spieler"]),
+                        key=f"sch_{k}",
+                        on_change=tor_schuetze_setzen, args=(t, f"sch_{k}"))
+        else:
+            a.markdown("🔴 **Gegentor**")
+        b.selectbox("HZ", [1, 2], index=int(t["hz"]) - 1, key=f"hz_{k}",
+                    on_change=tor_setzen, args=(t, "hz", f"hz_{k}"))
+        c.number_input("Min", 0, MAX_MINUTE, int(t["sek"]) // 60, key=f"min_{k}",
+                       on_change=tor_zeit_setzen, args=(t, f"min_{k}", f"sek_{k}"))
+        d.number_input("Sek", 0, 59, int(t["sek"]) % 60, key=f"sek_{k}",
+                       on_change=tor_zeit_setzen, args=(t, f"min_{k}", f"sek_{k}"))
+        if ist_tor:
+            assist = ["—"] + [n for n in kader_dabei if n != t["spieler"]]
+            e.selectbox("Assist", assist,
+                        index=assist.index(t["assist"]) if t["assist"] in assist else 0,
+                        key=f"ass_{k}", on_change=tor_wahl_setzen,
+                        args=(t, "assist", f"ass_{k}"))
+        f.button("🗑", key=f"torweg_{k}", on_click=tor_weg, args=(k,),
+                 use_container_width=True, help="Dieses Tor wieder entfernen")
+
+        # Videozeit: wo im Spielvideo das Tor liegt. Die Spieluhr oben bleibt
+        # davon unberuehrt - sie steht bei jedem Unterbruch still, das Video
+        # laeuft weiter, die beiden Zeiten driften also auseinander.
+        vid = int(t.get("videozeit") or 0)
+        v1, v2, v3, v4 = st.columns([0.9, 0.9, 1.2, 3], vertical_alignment="bottom")
+        v1.number_input("Video Min", 0, 180, vid // 60, key=f"vmin_{k}",
+                        on_change=tor_videozeit_setzen,
+                        args=(t, f"vmin_{k}", f"vsek_{k}"))
+        v2.number_input("Sek", 0, 59, vid % 60, step=VIDEO_SCHRITT,
+                        key=f"vsek_{k}", on_change=tor_videozeit_setzen,
+                        args=(t, f"vmin_{k}", f"vsek_{k}"))
+        v3.markdown(f"<div style='padding-bottom:9px;opacity:.7'>Video "
+                    f"{videozeit_text(t.get('videozeit'))}</div>",
+                    unsafe_allow_html=True)
+        if video_da and t.get("videozeit"):
+            with v4.expander("im Video nachsehen"):
+                st.video(video_pfad, start_time=int(t["videozeit"]))
+
+        linien_wahl = ["—", "1", "2", "3"]
+        g, h = st.columns([1, 5], vertical_alignment="center")
+        g.selectbox("Linie", linien_wahl,
+                    index=linien_wahl.index(t["linie"]) if t["linie"] in linien_wahl
+                    else 0, key=f"lin_{k}", on_change=tor_wahl_setzen,
+                    args=(t, "linie", f"lin_{k}"),
+                    help="Welche Linie stand auf dem Feld? In Unterzahl leer lassen.")
+        with h:
+            st.pills("Kategorie", KATEGORIEN[t["art"]],
+                     default=t["kategorie"] or None, selection_mode="single",
+                     key=f"kat_{k}", on_change=tor_wahl_setzen,
+                     args=(t, "kategorie", f"kat_{k}"))
+
+        if t["datei"]:
+            i, j = st.columns([5, 1], vertical_alignment="center")
+            i.caption(f"Torausschnitt angehängt: `{t['datei']}` — wird beim "
+                      f"Übernehmen in den Saisonordner gelegt.")
+            j.button("lösen", key=f"clipweg_{k}", use_container_width=True,
+                     on_click=clip_loesen, args=(t,))
+        else:
+            schnittbar = video_da and str(t.get("videozeit", "")).strip()
+            i, j, l = st.columns([1.3, 2, 2] if schnittbar else [0.01, 2, 2])
+            if schnittbar and i.button("✂ schneiden", key=f"cut_{k}",
+                                       use_container_width=True,
+                                       help=f"{CLIP_DAUER} Sekunden aus dem "
+                                            f"Spielvideo, mittig um "
+                                            f"{videozeit_text(t['videozeit'])}"):
+                with st.spinner("schneide den Ausschnitt …"):
+                    try:
+                        t["datei"] = clip_aus_video(video_pfad, t)
+                        sichern()
+                    except Exception as fehler:
+                        st.error(f"Nicht geschnitten: {fehler}")
+                    else:
+                        st.rerun()
+            hoch = j.file_uploader("Torausschnitt", type=["mp4", "mov", "m4v", "webm"],
+                                   key=f"up_{k}", label_visibility="collapsed")
+            if hoch is not None and st.session_state.get(f"hat_{k}") != hoch.name:
+                st.session_state[f"hat_{k}"] = hoch.name
+                t["datei"] = clip_ablegen(hoch.name, hoch.getvalue())
+                sichern()
+                st.rerun()
+            l.text_input("Videoadresse", value=t["video"], key=f"url_{k}",
+                         placeholder="oder Adresse zum Einbetten",
+                         label_visibility="collapsed",
+                         on_change=tor_setzen, args=(t, "video", f"url_{k}"))
+
+st.divider()
+
+# ------------------------------------------- Abschluesse des Gegners je Linie
+# Was der Gegner abgeschlossen hat, waehrend eine Linie draussen stand.
+# Gegentore und von uns geblockte Versuche gehoeren NICHT hierher - die
+# stehen schon oben und in der Spalte Block; zusammen ergibt das Corsi gegen.
+st.subheader("Abschlüsse des Gegners je Linie")
+st.caption("Nur gehaltene Schüsse und solche daneben. Gegentore **nicht** "
+           "mitzählen — die stehen oben, die geblockten in der Spalte Block.")
+
+abschluesse = st.session_state.abschluesse
+spalten_ab = st.columns(3)
+for sp, linie in zip(spalten_ab, ("1", "2", "3")):
+    with sp:
+        with st.container(border=True):
+            st.markdown(f"**Linie {linie}**")
+            for art in ABSCHLUSS_ARTEN:
+                wert = abschluesse[linie][art]
+                st.caption(art)
+                weg, zahl, hin = st.columns([1, 1, 1])
+                weg.button("−", key=f"ab_{linie}_{art}_minus", use_container_width=True,
+                           disabled=wert <= 0, on_click=abschluss_aendern,
+                           args=(linie, art, -1))
+                zahl.markdown(f"<div style='text-align:center;font-weight:700;"
+                              f"font-size:18px'>{wert}</div>", unsafe_allow_html=True)
+                hin.button("+", key=f"ab_{linie}_{art}_plus", use_container_width=True,
+                           on_click=abschluss_aendern, args=(linie, art, 1))
+
+st.divider()
+
 # ------------------------------------------------------- Linie-Plus/-Minus
 linien = linien_pm(blatt)   # steht nicht auf dem Blatt, wird abgeleitet
 
@@ -342,7 +650,18 @@ with links:
     st.subheader("Speichern")
     st.caption(f"**Statistik_Wygo.csv** — eine Zeile · "
                f"**{os.path.basename(saison_datei(kopf['saison']))}** — "
-               f"{len(tabelle)} Zeilen")
+               f"{len(tabelle)} Zeilen · **Tore.csv** — {len(tore)} Zeilen · "
+               f"**Gegner_Abschluesse.csv** — bis zu 3 Zeilen"
+               + (" · **Spielvideos.csv** — eine Zeile" if video_pfad else ""))
+    # Die Querproben vom Papierblatt, jetzt vor dem Schreiben. Sie halten nur
+    # auf, wenn etwas wirklich nicht zusammenpasst - geschrieben wird trotzdem,
+    # denn manches ist in Unterzahl von Natur aus ungleich.
+    proben = tor_kontrollen(blatt, tore, abschluesse, kopf.get("video", ""))
+    offen = [text for ok, text in proben if not ok]
+    if offen:
+        with st.expander(f"⚠ {len(offen)} Querproben gehen nicht auf", expanded=False):
+            for text in offen:
+                st.markdown(f"- {text}")
     if st.button("Blatt in die CSVs übernehmen", type="primary",
                  use_container_width=True):
         if not str(kopf["gegner"]).strip():
@@ -354,10 +673,11 @@ with links:
                      "nichts geschrieben.")
         else:
             try:
-                schreiben(kopf, blatt, datum, linien)
+                schreiben(kopf, blatt, datum, linien, tore, abschluesse)
                 sichern()
                 st.cache_data.clear()
-                st.success(f"Spiel {kopf['match_id']} geschrieben.")
+                st.success(f"Spiel {kopf['match_id']} geschrieben — "
+                           f"{len(tabelle)} Spielerzeilen, {len(tore)} Tore.")
                 st.balloons()
             except Exception as fehler:
                 st.error(f"Nichts geschrieben: {fehler}")
@@ -367,10 +687,15 @@ with rechts:
     if st.button("Neues Blatt", use_container_width=True):
         zustand_loeschen()
         for schluessel in [k for k in st.session_state
-                           if k.startswith(("rolle_", "z_", "weg_"))]:
+                           if k.startswith(("rolle_", "z_", "weg_", "sch_", "hz_",
+                                            "min_", "sek_", "ass_", "lin_", "kat_",
+                                            "up_", "hat_", "url_", "clipweg_", "ab_",
+                                            "torweg_", "cut_", "vmin_", "vsek_"))]:
             del st.session_state[schluessel]
         st.session_state.blatt = leeres_blatt()
         st.session_state.kopf = neuer_kopf()
+        st.session_state.tore = []
+        st.session_state.abschluesse = leere_abschluesse()
         st.rerun()
 
 sichern()   # auch die Kopffelder, die erst beim Zeichnen gelesen werden
@@ -380,3 +705,68 @@ with st.expander("Das wird geschrieben"):
                               columns=[c.strip() for c in WYGO_SPALTEN]).astype(str),
                  hide_index=True, use_container_width=True)
     st.dataframe(tabelle.astype(str), hide_index=True, use_container_width=True)
+    if tore:
+        st.dataframe(pd.DataFrame(tore_zeilen(kopf["match_id"], tore),
+                                  columns=TORE_SPALTEN).astype(str),
+                     hide_index=True, use_container_width=True)
+    zeilen_gegner = gegner_zeilen(kopf["match_id"], abschluesse)
+    if zeilen_gegner:
+        st.dataframe(pd.DataFrame(zeilen_gegner, columns=GEGNER_SPALTEN).astype(str),
+                     hide_index=True, use_container_width=True)
+    if video_pfad:
+        st.dataframe(pd.DataFrame([[kopf["match_id"], video_pfad]],
+                                  columns=VIDEO_SPALTEN).astype(str),
+                     hide_index=True, use_container_width=True)
+
+# -------------------------------- Ausschnitte eines schon erfassten Spiels
+# Der uebliche Ablauf: das Blatt wird nach dem Spiel uebernommen, das Video
+# kommt spaeter. Dann ist das Blatt oben laengst leer - geschnitten wird
+# hier, direkt aus Tore.csv.
+with st.expander("Ausschnitte für ein bereits erfasstes Spiel schneiden"):
+    videos = spielvideos()
+    if not videos:
+        st.caption("Noch kein Spiel mit hinterlegtem Video. Der Pfad kommt oben "
+                   "ins Feld **Spielvideo** und wird beim Übernehmen festgehalten.")
+    else:
+        spiele_wahl = sorted(videos, key=lambda m: int(m), reverse=True)
+        gewaehlt = st.selectbox("Spiel", spiele_wahl, key="nach_spiel")
+        quelle = videos[gewaehlt]
+        alle = tore_eines_spiels(gewaehlt)
+        mit_zeit = [t for t in alle if t["Videozeit"].strip()]
+        mit_clip = [t for t in alle if t["Datei"].strip()]
+        offen = [t for t in mit_zeit if not t["Datei"].strip()]
+        st.caption(f"{len(alle)} Tore · {len(mit_zeit)} mit Videozeit · "
+                   f"{len(mit_clip)} mit Ausschnitt · **{len(offen)} offen**")
+        if not os.path.isfile(quelle):
+            st.warning(f"Das hinterlegte Video finde ich nicht: `{quelle}`")
+        elif not offen:
+            st.success("Für dieses Spiel ist nichts mehr zu schneiden."
+                       if mit_zeit else
+                       "Für dieses Spiel ist keine Videozeit eingetragen.")
+        elif st.button(f"✂ {len(offen)} fehlende Ausschnitte schneiden",
+                       type="primary", use_container_width=True,
+                       key="nach_schneiden"):
+            balken = st.progress(0.0, text="schneide …")
+            stand = {"i": 0}
+
+            def melden(tor, name, _n=len(offen)):
+                stand["i"] += 1
+                balken.progress((stand["i"] - 1) / _n,
+                                text=f"{stand['i']} von {_n} — {name}")
+
+            try:
+                gemacht, fehler = clips_nachschneiden(gewaehlt, melden)
+            except Exception as fehlgeschlagen:
+                balken.empty()
+                st.error(str(fehlgeschlagen))
+            else:
+                balken.empty()
+                st.success(f"{len(gemacht)} Ausschnitte geschnitten und in "
+                           f"Tore.csv eingetragen.")
+                for text in fehler:
+                    st.error(text)
+        ohne_zeit = [t for t in alle if not t["Videozeit"].strip()]
+        if ohne_zeit:
+            st.caption("Ohne Videozeit und darum übersprungen: "
+                       + ", ".join(f"Nr {t['Nr']} ({t['Art']} {t['Zeit']})"
+                                   for t in ohne_zeit))
