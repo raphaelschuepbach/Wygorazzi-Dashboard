@@ -761,6 +761,37 @@ st.markdown(
     }}
     .gs-t.pos span:last-child {{border-radius:0 1px 1px 0;}}
     .gs-t.neg span:first-child {{border-radius:1px 0 0 1px;}}
+    /* Die Rechnung zu einem Teil. Sie steht unter dem Balken und beginnt an
+       seinem Anfang - so hat sie auch am schmalen Bildschirm ganz Platz.
+       Sie haengt am Balken (.gs-t), nicht am Teil: der schneidet Ueberstand
+       ab und darf darum selbst keine Position haben. */
+    .gs-tipp {{
+      display:none; position:absolute; left:0; top:calc(100% + 7px); z-index:30;
+      width:max-content; max-width:min(330px, 80vw); box-sizing:border-box;
+      padding:6px 10px; background:var(--flaeche-hell);
+      border:1px solid var(--linie); border-radius:2px; color:var(--text);
+      font-family:var(--schrift); font-size:13px; font-style:normal;
+      font-weight:500; line-height:1.35; white-space:normal; text-align:left;
+      pointer-events:none;
+    }}
+    /* mit der Maus beim Ueberfahren, mit der Tastatur im Fokus */
+    .gs-t span:hover > .gs-tipp, .gs-t span:focus-visible > .gs-tipp {{display:block;}}
+    /* Der Teil, zu dem die Rechnung gehoert, bekommt einen Rahmen. Bewusst
+       kein filter und kein transform am Teil: beides wuerde ihn zum Bezug
+       fuer das Rechnungsfeld machen - es stuende dann am Teil statt am
+       Balkenanfang und wuerde von ihm abgeschnitten. */
+    .gs-t span:focus {{outline:none;}}
+    .gs-t span:hover, .gs-t span:focus-visible {{
+      outline:2px solid var(--text); outline-offset:-2px;
+    }}
+    /* am Handy beim Antippen: der Teil bekommt den Fokus und einen Rahmen,
+       ein Tipp daneben schliesst die Rechnung wieder. cursor:pointer macht
+       das Feld fuer iOS antippbar. */
+    @media (hover:none) {{
+        .gs {{cursor:pointer; -webkit-tap-highlight-color:transparent;}}
+        .gs-t span:focus > .gs-tipp {{display:block;}}
+        .gs-t span:focus {{outline:2px solid var(--text); outline-offset:-2px;}}
+    }}
 
     /* ---------- Torhueter im Vergleich ----------
        Raster mit Kopfzeile: Name | Meter | Quote | Einzelwerte (--n Stueck) */
@@ -3391,7 +3422,8 @@ def gamescore_grafik(df_in, mit_schnitt=True):
     Rechts der Nulllinie steht, was die Zahl hebt, links, was sie senkt; die
     Summe steht als Zahl dahinter, bei mehreren Spielen mit dem Schnitt pro
     Spiel. Alle Balken teilen sich einen Massstab. In der Legende steht hinter
-    jedem Teil sein Gewicht je Aktion, am Balken (Mauszeiger) die Rechnung.
+    jedem Teil sein Gewicht je Aktion; die Rechnung zu einem Teil erscheint
+    beim Ueberfahren mit der Maus oder beim Antippen.
     """
     tabelle = game_score(df_in)
     if tabelle.empty or float(tabelle["GameScore"].abs().max()) == 0:
@@ -3423,9 +3455,15 @@ def gamescore_grafik(df_in, mit_schnitt=True):
             # mal 1000: flex-Werte, die zusammen unter 1 bleiben, fuellen den
             # Balken nur zu diesem Bruchteil - bei einem einzelnen Spiel
             # waeren die Teile zu kurz
+            # Die Rechnung steht als eigenes Feld im Teil und geht beim
+            # Ueberfahren oder Antippen auf. Ein title-Attribut zeigt nur die
+            # Maus - am Handy kaeme die Rechnung nie. tabindex macht den Teil
+            # antippbar (er nimmt den Fokus an).
             (rechts if wert > 0 else links).append(
-                f"<span style='flex:{1000 * abs(wert):.1f} 1 0;background:{farbe};"
-                f"color:{_auf_farbe(farbe)}' title='{_e(tipp)}'>{zahl}</span>")
+                f"<span tabindex='0' aria-label='{_e(tipp)}' "
+                f"style='flex:{1000 * abs(wert):.1f} 1 0;background:{farbe};"
+                f"color:{_auf_farbe(farbe)}'>{zahl}"
+                f"<em class='gs-tipp'>{_e(tipp)}</em></span>")
         breite_r = 100 * float(plus[name]) / voll
         breite_l = 100 * float(minus[name]) / voll
         balken = ""
@@ -4467,17 +4505,20 @@ if selected_match_id is not None:
         unsafe_allow_html=True,
     )
 
-    st.markdown("### Aufstellung nach Linien")
-    # je Linie ein Feld, alle drei in einem Block - so gehoeren Titel und
-    # Namen sichtbar zusammen
-    _felder = []
-    for linie in ["1", "2", "3"]:
-        players = df_for_plots[df_for_plots["Linie"].astype(str) == str(linie)]["Name"].tolist()
-        _namen = ("".join(f"<div class='player-name'>{_e(p)}</div>" for p in players)
-                  or "<div class='subtle'>Keine Spieler</div>")
-        _felder.append(f"<div class='line-card'><strong>Linie {linie}</strong>{_namen}</div>")
-    st.markdown(f"<div class='linien-raster'>{''.join(_felder)}</div>",
-                unsafe_allow_html=True)
+    # in aelteren Saisons gibt es zum einzelnen Spiel nur die Spieler - auch
+    # die Aufstellung nach Linien entfaellt dort
+    if not aeltere_saison(selected_saison):
+        st.markdown("### Aufstellung nach Linien")
+        # je Linie ein Feld, alle drei in einem Block - so gehoeren Titel und
+        # Namen sichtbar zusammen
+        _felder = []
+        for linie in ["1", "2", "3"]:
+            players = df_for_plots[df_for_plots["Linie"].astype(str) == str(linie)]["Name"].tolist()
+            _namen = ("".join(f"<div class='player-name'>{_e(p)}</div>" for p in players)
+                      or "<div class='subtle'>Keine Spieler</div>")
+            _felder.append(f"<div class='line-card'><strong>Linie {linie}</strong>{_namen}</div>")
+        st.markdown(f"<div class='linien-raster'>{''.join(_felder)}</div>",
+                    unsafe_allow_html=True)
 
     st.markdown("### Statistik zu diesem Spiel")
     if df_for_plots.empty:
