@@ -674,6 +674,8 @@ st.markdown(
       border-left:4px solid transparent; border-right:4px solid transparent;
       border-top:5px solid var(--akzent);
     }}
+    /* aufsteigend: die Spitze zeigt nach oben */
+    .rl-pf.auf {{border-top:0; border-bottom:5px solid var(--akzent);}}
     /* das Skript dazu braucht keinen Platz auf der Seite */
     [data-testid="stElementContainer"]:has(.kopf-bruecke) {{display:none;}}
 
@@ -1890,7 +1892,7 @@ def stapelliste(zeilen, farben, beschriftung=None, bezug=None, legende=True,
 
 
 def rangtabelle(zeilen, spalten, aktiv=None, erste="Spieler", rang=True,
-                balken=True, viel=None, schalter=None):
+                balken=True, viel=None, schalter=None, aufsteigend=False):
     """Tabelle mit einer hervorgehobenen Spalte.
 
     zeilen: Liste von Dicts in der Reihenfolge der Anzeige, mit "Name".
@@ -1904,7 +1906,8 @@ def rangtabelle(zeilen, spalten, aktiv=None, erste="Spieler", rang=True,
 
     schalter ist der Schluessel eines Umschalters (auswahl_schalter): Spalten
     mit "sort" bekommen dann einen antippbaren Kopf, der die gleichnamige
-    Wahl dieses Umschalters ausloest - siehe kopfsortierung().
+    Wahl dieses Umschalters ausloest - siehe kopfsortierung(). aufsteigend
+    dreht den Pfeil an der sortierten Spalte.
     """
     if not zeilen:
         return None
@@ -1920,10 +1923,13 @@ def rangtabelle(zeilen, spalten, aktiv=None, erste="Spieler", rang=True,
         sortier, pfeil = "", ""
         if schalter and sp.get("sort"):
             klasse = (klasse + " sortierbar").strip()
-            sortier = (f" data-sort='{_e(sp['sort'])}' data-schalter='{_e(schalter)}'"
+            sortier = (f" data-spalte='{_e(sp['sort'])}' data-umschalter='{_e(schalter)}'"
                        " tabindex='0' role='button'")
-            # der Pfeil steht vor dem Kuerzel: so bleibt es buendig ueber den Zahlen
-            pfeil = "<i class='rl-pf'></i>" if sp["key"] == aktiv else ""
+            if sp["key"] == aktiv:
+                # der Pfeil steht vor dem Kuerzel: so bleibt es buendig ueber
+                # den Zahlen. Nach unten = absteigend, nach oben = aufsteigend.
+                sortier += f" aria-sort='{'ascending' if aufsteigend else 'descending'}'"
+                pfeil = f"<i class='rl-pf{' auf' if aufsteigend else ''}'></i>"
         kopf.append(f"<th class='{klasse}'{hilfe}{sortier}>{pfeil}{_e(sp['kopf'])}</th>")
     koerper = []
     platz, vorher = 0, None
@@ -2077,13 +2083,15 @@ def rangliste_zusatz(df_in):
                  or _ballverlust_spiele(df_in) is not None)}
 
 
-def spieler_rangliste(df_in, sortiert="Punkte", mit_einsaetzen=True, schalter=None):
+def spieler_rangliste(df_in, sortiert="Punkte", mit_einsaetzen=True, schalter=None,
+                      aufsteigend=False):
     """Die Rangliste als eine Tabelle: Einsaetze, Tore, Assists, Punkte,
     Plus-Minus und Strafen - dazu, wo erfasst, Schuesse, Blocks und
     Ballwerte, also alles, woraus der Game Score gerechnet wird. Sortiert
     nach der gewaehlten Spalte, darunter die Legende der Kuerzel.
 
-    schalter: Schluessel des Umschalters, den die Spaltenkoepfe bedienen."""
+    schalter: Schluessel des Umschalters, den die Spaltenkoepfe bedienen.
+    aufsteigend kehrt die Reihenfolge um (kleinster Wert zuoberst)."""
     if df_in is None or df_in.empty or "Name" not in df_in.columns:
         return None
     d = df_in.copy()
@@ -2103,10 +2111,12 @@ def spieler_rangliste(df_in, sortiert="Punkte", mit_einsaetzen=True, schalter=No
     wahl = {**SORTIERUNG, **{anzeige: e[0] for anzeige, e in zusatz.items()}}
     schluessel = wahl.get(sortiert, "Punkte")
     # Gleichstand: erst die Punkte, dann der Name - sonst springt die
-    # Reihenfolge von Aufruf zu Aufruf. Zeilen ohne Wert stehen zuunterst.
+    # Reihenfolge von Aufruf zu Aufruf. Zeilen ohne Wert stehen in beiden
+    # Richtungen zuunterst.
     summe = summe.reset_index()
     summe = summe.sort_values([schluessel, "Punkte", "Name"],
-                              ascending=[False, False, True])
+                              ascending=[bool(aufsteigend), False, True],
+                              na_position="last")
     zeilen = []
     for _, r in summe.iterrows():
         zeile = {
@@ -2141,7 +2151,7 @@ def spieler_rangliste(df_in, sortiert="Punkte", mit_einsaetzen=True, schalter=No
         sp["sort"] = wahl_von.get(sp["key"])
     # nur Zahlen, kein Balken: bei elf Spalten lenkt er mehr ab, als er zeigt
     tabelle = rangtabelle(zeilen, spalten, aktiv=schluessel, balken=False,
-                          schalter=schalter)
+                          schalter=schalter, aufsteigend=aufsteigend)
     if tabelle is None:
         return None
     # Die Kuerzel stehen ausgeschrieben unter der Tabelle - am Handy gibt es
@@ -2610,26 +2620,35 @@ def auswahl_schalter(titel, optionen, schluessel, vorgabe, on_change=None):
 
 
 # Ein Klick, ein Tipp oder die Eingabetaste auf einem Spaltenkopf mit
-# data-sort drueckt im Umschalter data-schalter den Knopf mit diesem Text.
-# Der Zuhoerer haengt am Dokument: so gilt er auch fuer Tabellen, die Streamlit
-# nach einem Neuladen frisch zeichnet. Er wird nur einmal eingerichtet.
+# data-spalte bedient den Umschalter data-umschalter: eine andere Spalte wird
+# dort gewaehlt, bei der schon sortierten Spalte wird der Knopf "umkehren"
+# gedrueckt. Der Zuhoerer haengt am Dokument: so gilt er auch fuer Tabellen,
+# die Streamlit nach einem Neuladen frisch zeichnet. Er wird nur einmal
+# eingerichtet. (Die Namen der Attribute sind andere als in der ersten
+# Fassung, damit ein noch offener Zuhoerer von damals nicht mitdrueckt.)
 KOPFSORTIERUNG_SKRIPT = """<span class='kopf-bruecke'></span>
 <script>
 (function () {
-  if (window.__wygoKopfsortierung) { return; }
-  window.__wygoKopfsortierung = true;
+  if (window.__wygoKopfsortierung2) { return; }
+  window.__wygoKopfsortierung2 = true;
   function ausloesen(ziel) {
-    var kopf = ziel && ziel.closest ? ziel.closest('th[data-sort]') : null;
+    var kopf = ziel && ziel.closest ? ziel.closest('th[data-spalte]') : null;
     if (!kopf) { return false; }
-    var feld = document.querySelector('.st-key-' + kopf.getAttribute('data-schalter'));
+    var schluessel = kopf.getAttribute('data-umschalter');
+    var feld = document.querySelector('.st-key-' + schluessel);
     if (!feld) { return false; }
-    var wahl = kopf.getAttribute('data-sort');
+    var wahl = kopf.getAttribute('data-spalte');
     var knoepfe = feld.querySelectorAll('button');
     for (var i = 0; i < knoepfe.length; i++) {
       if (knoepfe[i].textContent.trim() === wahl) {
-        // die schon aktive Wahl nicht noch einmal druecken - das waehlte sie ab
         if ((knoepfe[i].getAttribute('data-testid') || '').indexOf('Active') < 0) {
+          // eine andere Spalte: dorthin wechseln
           knoepfe[i].click();
+        } else {
+          // die schon sortierte Spalte: Reihenfolge umkehren. Den Knopf der
+          // Spalte selbst nicht noch einmal druecken - das waehlte sie ab.
+          var um = document.querySelector('.st-key-' + schluessel + '_umkehren button');
+          if (um) { um.click(); }
         }
         return true;
       }
@@ -2647,19 +2666,43 @@ KOPFSORTIERUNG_SKRIPT = """<span class='kopf-bruecke'></span>
 
 def kopfsortierung(schluessel):
     """Schaltet das Sortieren ueber die Spaltenkoepfe ein: blendet den
-    Umschalter mit diesem Schluessel aus und laedt das Skript, das ihn von
-    den Spaltenkoepfen aus bedient.
+    Umschalter mit diesem Schluessel und seinen Knopf "umkehren" aus und
+    laedt das Skript, das beide von den Spaltenkoepfen aus bedient.
 
     Gibt False zurueck, wenn die Streamlit-Version kein Skript ausfuehren
     kann (unsafe_allow_javascript gibt es erst in neueren Versionen) - dann
-    bleibt der Umschalter sichtbar und wird wie bisher bedient.
+    bleiben Umschalter und Knopf sichtbar und werden von Hand bedient.
     """
     try:
-        st.html(f"<style>.st-key-{schluessel} {{display:none !important;}}</style>"
+        st.html(f"<style>.st-key-{schluessel}, .st-key-{schluessel}_umkehren "
+                "{display:none !important;}</style>"
                 + KOPFSORTIERUNG_SKRIPT, unsafe_allow_javascript=True)
     except TypeError:
         return False
     return True
+
+
+def _richtung_umkehren(schluessel):
+    merker = f"{schluessel}_auf"
+    st.session_state[merker] = not st.session_state.get(merker, False)
+
+
+def sortierrichtung(schluessel, spalte):
+    """True, wenn die Tabelle zum Umschalter `schluessel` aufsteigend
+    sortiert sein soll.
+
+    Die Richtung haengt an einem Knopf "umkehren" (ausgeblendet, vom
+    Spaltenkopf aus gedrueckt). Wechselt die sortierte Spalte - durch einen
+    Tipp auf einen anderen Kopf oder weil es die Spalte in der neuen Auswahl
+    nicht gibt -, beginnt sie wieder absteigend.
+    """
+    merker, zuletzt = f"{schluessel}_auf", f"{schluessel}_spalte"
+    st.button("Reihenfolge umkehren", key=f"{schluessel}_umkehren",
+              on_click=_richtung_umkehren, args=(schluessel,))
+    if st.session_state.get(zuletzt) != spalte:
+        st.session_state[merker] = False
+    st.session_state[zuletzt] = spalte
+    return bool(st.session_state.get(merker, False))
 
 
 def tab_pro_spieler(df_in, zeige_gespielt=False, spiele=None):
@@ -2671,23 +2714,27 @@ def tab_pro_spieler(df_in, zeige_gespielt=False, spiele=None):
     punkte = nur_stammspieler(df_in, mit_punkten=True)
     mehrere = df_in[MATCH_COL].nunique() > 1
     # Sortieren laesst sich nach jeder Spalte der Tabelle - ueber ihren
-    # Spaltenkopf. Der Umschalter haelt nur noch die Wahl fest und ist
-    # ausgeblendet. Eine Wahl, die es in dieser Auswahl nicht gibt (Saison
-    # ohne Schuesse und Ballwerte, Einsaetze im einzelnen Spiel), faellt auf
-    # die Punkte zurueck.
+    # Spaltenkopf, beim zweiten Tipp in der anderen Richtung. Umschalter und
+    # Knopf "umkehren" halten nur noch die Wahl fest und sind ausgeblendet.
+    # Eine Wahl, die es in dieser Auswahl nicht gibt (Saison ohne Schuesse
+    # und Ballwerte, Einsaetze im einzelnen Spiel), faellt auf die Punkte
+    # zurueck.
     zusatz = rangliste_zusatz(punkte)
     ueber_kopf = kopfsortierung("spieler_sortierung")
     sortiert = auswahl_schalter(
         "Rangliste sortiert nach",
         [wahl for wahl in SORTIERUNG if mehrere or wahl != "Einsätze"] + list(zusatz),
         "spieler_sortierung", "Punkte")
+    aufsteigend = sortierrichtung("spieler_sortierung", sortiert)
     erweitert = hat_erweiterte_daten(df_in)
 
     eintraege = [_eintrag_html(
         "Rangliste",
         spieler_rangliste(punkte, sortiert, mit_einsaetzen=mehrere,
-                          schalter="spieler_sortierung" if ueber_kopf else None),
-        unter=f"Sortiert nach {sortiert}", breit=True)]
+                          schalter="spieler_sortierung" if ueber_kopf else None,
+                          aufsteigend=aufsteigend),
+        unter=f"Sortiert nach {sortiert}" + (", aufsteigend" if aufsteigend else ""),
+        breit=True)]
     # Schuesse, Blocks, Balleroberungen und Ballverluste stehen als Zahlen in
     # der Rangliste - eigene Karten dafuer gibt es nicht mehr.
     if erweitert:
