@@ -658,6 +658,25 @@ st.markdown(
       left:auto; right:50%; background:var(--schlecht); border-radius:1px 0 0 1px;
     }}
 
+    /* Sortieren ueber den Spaltenkopf: der Kopf ist antippbar, die sortierte
+       Spalte traegt einen kleinen Pfeil in der Vereinsfarbe */
+    .rl-wrap table.rl th.sortierbar {{
+      cursor:pointer; user-select:none; -webkit-user-select:none;
+      -webkit-tap-highlight-color:transparent; transition:color .12s ease;
+    }}
+    .rl-wrap table.rl th.sortierbar:hover {{color:var(--text);}}
+    .rl-wrap table.rl th.sortierbar:focus {{outline:none;}}
+    .rl-wrap table.rl th.sortierbar:focus-visible {{
+      outline:1px solid var(--linie); outline-offset:-3px;
+    }}
+    .rl-pf {{
+      display:inline-block; width:0; height:0; margin-right:5px; vertical-align:2px;
+      border-left:4px solid transparent; border-right:4px solid transparent;
+      border-top:5px solid var(--akzent);
+    }}
+    /* das Skript dazu braucht keinen Platz auf der Seite */
+    [data-testid="stElementContainer"]:has(.kopf-bruecke) {{display:none;}}
+
     /* viele Spalten (Rangliste mit Schuessen, Blocks und Ballwerten): der
        Balken der aktiven Spalte gibt Platz ab, die Zellen ruecken zusammen.
        Nur am grossen Bildschirm - am Handy gelten die Regeln weiter unten. */
@@ -975,6 +994,8 @@ st.markdown(
         .kachel {{padding:13px 14px 12px 14px;}}
         .k-wert {{font-size:36px;}}
         .rl-wrap table.rl th, .rl-wrap table.rl td {{padding:8px 5px;}}
+        /* schmale Spalten (T, A, P) breit genug fuer einen Finger */
+        .rl-wrap table.rl th.sortierbar {{min-width:30px; padding-top:10px; padding-bottom:10px;}}
         .rl-wrap table.rl td.akt {{width:auto;}}
         /* breite Tabelle: seitlich schieben, der Name bleibt stehen */
         .rl-wrap table.rl.viel td.name, .rl-wrap table.rl.viel th.name {{
@@ -1869,7 +1890,7 @@ def stapelliste(zeilen, farben, beschriftung=None, bezug=None, legende=True,
 
 
 def rangtabelle(zeilen, spalten, aktiv=None, erste="Spieler", rang=True,
-                balken=True, viel=None):
+                balken=True, viel=None, schalter=None):
     """Tabelle mit einer hervorgehobenen Spalte.
 
     zeilen: Liste von Dicts in der Reihenfolge der Anzeige, mit "Name".
@@ -1880,6 +1901,10 @@ def rangtabelle(zeilen, spalten, aktiv=None, erste="Spieler", rang=True,
     laesst ihn weg - dann ist die aktive Spalte nur fett gesetzt. Eine
     Textzelle darf fertiges HTML sein (Html). viel=True erzwingt die enge
     Fassung, die sich am Handy seitlich schieben laesst.
+
+    schalter ist der Schluessel eines Umschalters (auswahl_schalter): Spalten
+    mit "sort" bekommen dann einen antippbaren Kopf, der die gleichnamige
+    Wahl dieses Umschalters ausloest - siehe kopfsortierung().
     """
     if not zeilen:
         return None
@@ -1892,7 +1917,14 @@ def rangtabelle(zeilen, spalten, aktiv=None, erste="Spieler", rang=True,
     for sp in spalten:
         klasse = "akt" if sp["key"] == aktiv else ""
         hilfe = f" title='{_e(sp['hilfe'])}'" if sp.get("hilfe") else ""
-        kopf.append(f"<th class='{klasse}'{hilfe}>{_e(sp['kopf'])}</th>")
+        sortier, pfeil = "", ""
+        if schalter and sp.get("sort"):
+            klasse = (klasse + " sortierbar").strip()
+            sortier = (f" data-sort='{_e(sp['sort'])}' data-schalter='{_e(schalter)}'"
+                       " tabindex='0' role='button'")
+            # der Pfeil steht vor dem Kuerzel: so bleibt es buendig ueber den Zahlen
+            pfeil = "<i class='rl-pf'></i>" if sp["key"] == aktiv else ""
+        kopf.append(f"<th class='{klasse}'{hilfe}{sortier}>{pfeil}{_e(sp['kopf'])}</th>")
     koerper = []
     platz, vorher = 0, None
     for nr, z in enumerate(zeilen, 1):
@@ -2014,7 +2046,7 @@ def vergleichsliste(zeilen):
 # ---------------------------
 SORTIERUNG = {
     # Anzeige im Schalter -> Spalte der Tabelle, in der Reihenfolge der Spalten
-    "Tore": "T", "Assists": "A", "Punkte": "Punkte",
+    "Einsätze": "Sp", "Tore": "T", "Assists": "A", "Punkte": "Punkte",
     "Plus-Minus": "PlusMinus", "Strafen": "Strafen",
 }
 
@@ -2045,11 +2077,13 @@ def rangliste_zusatz(df_in):
                  or _ballverlust_spiele(df_in) is not None)}
 
 
-def spieler_rangliste(df_in, sortiert="Punkte", mit_einsaetzen=True):
+def spieler_rangliste(df_in, sortiert="Punkte", mit_einsaetzen=True, schalter=None):
     """Die Rangliste als eine Tabelle: Einsaetze, Tore, Assists, Punkte,
     Plus-Minus und Strafen - dazu, wo erfasst, Schuesse, Blocks und
     Ballwerte, also alles, woraus der Game Score gerechnet wird. Sortiert
-    nach der gewaehlten Spalte, darunter die Legende der Kuerzel."""
+    nach der gewaehlten Spalte, darunter die Legende der Kuerzel.
+
+    schalter: Schluessel des Umschalters, den die Spaltenkoepfe bedienen."""
     if df_in is None or df_in.empty or "Name" not in df_in.columns:
         return None
     d = df_in.copy()
@@ -2101,8 +2135,13 @@ def spieler_rangliste(df_in, sortiert="Punkte", mit_einsaetzen=True):
     spalten += [dict(key=spalte, kopf=kopf, hilfe=wort[:1].upper() + wort[1:],
                      wort=wort, leer="–")
                 for spalte, kopf, wort in zusatz.values()]
+    # jede Spalte, nach der sich sortieren laesst, kennt ihre Wahl im Umschalter
+    wahl_von = {spalte: anzeige for anzeige, spalte in wahl.items()}
+    for sp in spalten:
+        sp["sort"] = wahl_von.get(sp["key"])
     # nur Zahlen, kein Balken: bei elf Spalten lenkt er mehr ab, als er zeigt
-    tabelle = rangtabelle(zeilen, spalten, aktiv=schluessel, balken=False)
+    tabelle = rangtabelle(zeilen, spalten, aktiv=schluessel, balken=False,
+                          schalter=schalter)
     if tabelle is None:
         return None
     # Die Kuerzel stehen ausgeschrieben unter der Tabelle - am Handy gibt es
@@ -2549,15 +2588,78 @@ def auswahl_schalter(titel, optionen, schluessel, vorgabe, on_change=None):
     steht dann leer da. Hier bleibt in dem Fall die bisherige Wahl stehen;
     eine Wahl, die es unter den Optionen nicht (mehr) gibt - etwa nach dem
     Wechsel in eine Saison ohne diese Spalte -, faellt auf die Vorgabe zurueck.
+
+    Aendern sich die Optionen, ist der Umschalter fuer Streamlit ein neues
+    Element und beginnt leer. Die bisherige Wahl wird darum neu gesetzt,
+    solange es sie unter den neuen Optionen noch gibt.
     """
     gemerkt = f"{schluessel}_gemerkt"
-    if st.session_state.get(schluessel) not in optionen:
+    angebot = f"{schluessel}_angebot"
+    optionen = list(optionen)
+    aktuell = st.session_state.get(schluessel)
+    if aktuell not in optionen or st.session_state.get(angebot) != optionen:
         zuletzt = st.session_state.get(gemerkt)
-        st.session_state[schluessel] = zuletzt if zuletzt in optionen else vorgabe
+        st.session_state[schluessel] = (aktuell if aktuell in optionen
+                                        else zuletzt if zuletzt in optionen
+                                        else vorgabe)
+    st.session_state[angebot] = optionen
     wahl = st.segmented_control(titel, optionen, key=schluessel,
                                 on_change=on_change) or vorgabe
     st.session_state[gemerkt] = wahl
     return wahl
+
+
+# Ein Klick, ein Tipp oder die Eingabetaste auf einem Spaltenkopf mit
+# data-sort drueckt im Umschalter data-schalter den Knopf mit diesem Text.
+# Der Zuhoerer haengt am Dokument: so gilt er auch fuer Tabellen, die Streamlit
+# nach einem Neuladen frisch zeichnet. Er wird nur einmal eingerichtet.
+KOPFSORTIERUNG_SKRIPT = """<span class='kopf-bruecke'></span>
+<script>
+(function () {
+  if (window.__wygoKopfsortierung) { return; }
+  window.__wygoKopfsortierung = true;
+  function ausloesen(ziel) {
+    var kopf = ziel && ziel.closest ? ziel.closest('th[data-sort]') : null;
+    if (!kopf) { return false; }
+    var feld = document.querySelector('.st-key-' + kopf.getAttribute('data-schalter'));
+    if (!feld) { return false; }
+    var wahl = kopf.getAttribute('data-sort');
+    var knoepfe = feld.querySelectorAll('button');
+    for (var i = 0; i < knoepfe.length; i++) {
+      if (knoepfe[i].textContent.trim() === wahl) {
+        // die schon aktive Wahl nicht noch einmal druecken - das waehlte sie ab
+        if ((knoepfe[i].getAttribute('data-testid') || '').indexOf('Active') < 0) {
+          knoepfe[i].click();
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+  document.addEventListener('click', function (ereignis) { ausloesen(ereignis.target); });
+  document.addEventListener('keydown', function (ereignis) {
+    if (ereignis.key !== 'Enter' && ereignis.key !== ' ') { return; }
+    if (ausloesen(ereignis.target)) { ereignis.preventDefault(); }
+  });
+})();
+</script>"""
+
+
+def kopfsortierung(schluessel):
+    """Schaltet das Sortieren ueber die Spaltenkoepfe ein: blendet den
+    Umschalter mit diesem Schluessel aus und laedt das Skript, das ihn von
+    den Spaltenkoepfen aus bedient.
+
+    Gibt False zurueck, wenn die Streamlit-Version kein Skript ausfuehren
+    kann (unsafe_allow_javascript gibt es erst in neueren Versionen) - dann
+    bleibt der Umschalter sichtbar und wird wie bisher bedient.
+    """
+    try:
+        st.html(f"<style>.st-key-{schluessel} {{display:none !important;}}</style>"
+                + KOPFSORTIERUNG_SKRIPT, unsafe_allow_javascript=True)
+    except TypeError:
+        return False
+    return True
 
 
 def tab_pro_spieler(df_in, zeige_gespielt=False, spiele=None):
@@ -2568,17 +2670,23 @@ def tab_pro_spieler(df_in, zeige_gespielt=False, spiele=None):
     stamm = nur_stammspieler(df_in)
     punkte = nur_stammspieler(df_in, mit_punkten=True)
     mehrere = df_in[MATCH_COL].nunique() > 1
-    # Sortieren laesst sich nach jeder Spalte der Tabelle. Eine Wahl, die es
-    # in dieser Auswahl nicht gibt (Saison ohne Schuesse und Ballwerte), faellt
-    # auf die Punkte zurueck.
+    # Sortieren laesst sich nach jeder Spalte der Tabelle - ueber ihren
+    # Spaltenkopf. Der Umschalter haelt nur noch die Wahl fest und ist
+    # ausgeblendet. Eine Wahl, die es in dieser Auswahl nicht gibt (Saison
+    # ohne Schuesse und Ballwerte, Einsaetze im einzelnen Spiel), faellt auf
+    # die Punkte zurueck.
     zusatz = rangliste_zusatz(punkte)
+    ueber_kopf = kopfsortierung("spieler_sortierung")
     sortiert = auswahl_schalter(
-        "Rangliste sortiert nach", list(SORTIERUNG) + list(zusatz),
+        "Rangliste sortiert nach",
+        [wahl for wahl in SORTIERUNG if mehrere or wahl != "Einsätze"] + list(zusatz),
         "spieler_sortierung", "Punkte")
     erweitert = hat_erweiterte_daten(df_in)
 
     eintraege = [_eintrag_html(
-        "Rangliste", spieler_rangliste(punkte, sortiert, mit_einsaetzen=mehrere),
+        "Rangliste",
+        spieler_rangliste(punkte, sortiert, mit_einsaetzen=mehrere,
+                          schalter="spieler_sortierung" if ueber_kopf else None),
         unter=f"Sortiert nach {sortiert}", breit=True)]
     # Schuesse, Blocks, Balleroberungen und Ballverluste stehen als Zahlen in
     # der Rangliste - eigene Karten dafuer gibt es nicht mehr.
